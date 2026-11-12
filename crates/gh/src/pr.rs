@@ -271,13 +271,9 @@ pub struct NeedsYou {
     pub blocking: Vec<PrSummary>,
     /// You reviewed, and the head moved since.
     pub rereview: Vec<PrSummary>,
-    /// Open in your projects; you haven't reviewed and aren't requested.
-    pub new: Vec<PrSummary>,
 }
 
 const OPEN_READY: &str = "is:pr is:open -is:draft archived:false";
-/// GitHub rejects search queries longer than this.
-const MAX_QUERY: usize = 256;
 
 async fn search_prs(gh: &GitHub, q: &str) -> GhResult<Vec<PrSummary>> {
     #[derive(Deserialize)]
@@ -339,49 +335,11 @@ async fn search_rereview(gh: &GitHub, q: &str) -> GhResult<Vec<PrSummary>> {
         .collect())
 }
 
-/// Splits `repo:` qualifiers into queries that fit GitHub's length limit.
-fn chunked_repo_queries(base: &str, repos: &[(String, String)]) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut q = base.to_owned();
-    let mut has_repo = false;
-    for (o, r) in repos {
-        let term = format!(" repo:{o}/{r}");
-        if has_repo && q.len() + term.len() > MAX_QUERY {
-            out.push(std::mem::replace(&mut q, base.to_owned()));
-        }
-        q.push_str(&term);
-        has_repo = true;
-    }
-    if has_repo {
-        out.push(q);
-    }
-    out
-}
-
-pub async fn needs_you(gh: &GitHub, repos: &[(String, String)]) -> GhResult<NeedsYou> {
+pub async fn needs_you(gh: &GitHub) -> GhResult<NeedsYou> {
     let blocking_q = format!("{OPEN_READY} review-requested:@me sort:updated-desc");
     let rereview_q = format!("{OPEN_READY} reviewed-by:@me -review-requested:@me -author:@me sort:updated-desc");
-    let new_qs = chunked_repo_queries(
-        &format!("{OPEN_READY} -author:@me -reviewed-by:@me -review-requested:@me sort:updated-desc"),
-        repos,
-    );
-
-    let (blocking, rereview, new) = tokio::join!(
-        search_prs(gh, &blocking_q),
-        search_rereview(gh, &rereview_q),
-        join_all(new_qs.iter().map(|q| search_prs(gh, q))),
-    );
-    let mut fresh: Vec<PrSummary> = Vec::new();
-    for batch in new {
-        for pr in batch? {
-            if !fresh.iter().any(|f| f.pr == pr.pr) {
-                fresh.push(pr);
-            }
-        }
-    }
-    fresh.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-    fresh.truncate(30);
-    Ok(NeedsYou { blocking: blocking?, rereview: rereview?, new: fresh })
+    let (blocking, rereview) = tokio::join!(search_prs(gh, &blocking_q), search_rereview(gh, &rereview_q));
+    Ok(NeedsYou { blocking: blocking?, rereview: rereview? })
 }
 
 /// Open PR count per repo, in input order; `None` where the repo isn't visible.
@@ -473,22 +431,11 @@ mod live {
     }
 
     #[test]
-    fn repo_queries_respect_length_limit() {
-        let repos: Vec<(String, String)> = (0..40).map(|i| (format!("owner{i}"), format!("repository-{i}"))).collect();
-        let qs = chunked_repo_queries(OPEN_READY, &repos);
-        assert!(qs.len() > 1);
-        assert!(qs.iter().all(|q| q.len() <= MAX_QUERY));
-        assert_eq!(qs.iter().map(|q| q.matches(" repo:").count()).sum::<usize>(), 40);
-        assert!(chunked_repo_queries(OPEN_READY, &[]).is_empty());
-    }
-
-    #[test]
     fn needs_you_and_threads() {
         RT.block_on(async {
             let Some(gh) = client().await else { return };
-            let n = needs_you(&gh, &[("cli".into(), "cli".into()), ("tauri-apps".into(), "tauri".into())]).await.unwrap();
-            println!("blocking {} rereview {} new {}", n.blocking.len(), n.rereview.len(), n.new.len());
-            assert!(!n.new.is_empty());
+            let n = needs_you(&gh).await.unwrap();
+            println!("blocking {} rereview {}", n.blocking.len(), n.rereview.len());
             let threads = crate::threads::review_threads(&gh, &pr("cli", "cli", 9000)).await.unwrap();
             println!("{} threads on cli/cli#9000", threads.len());
         })

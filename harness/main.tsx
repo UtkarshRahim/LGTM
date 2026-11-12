@@ -42,7 +42,6 @@ mockIPC(
         return {
           blocking: [hit(101, "Add rate limiting to the uploads API"), hit(102, "Fix flaky checkout test")],
           rereview: [hit(103, "Migrate settings to TOML")],
-          new: [],
         };
       }
       case "search":

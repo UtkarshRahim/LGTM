@@ -17,7 +17,6 @@ type Results = { label: string; hits: PrHit[] } | null;
 const SECTIONS: { key: keyof NeedsYou; title: string; hint: string; empty: string }[] = [
   { key: "blocking", title: "Blocking", hint: "Your review is requested", empty: "No review requests." },
   { key: "rereview", title: "Re-review", hint: "New commits since your review", empty: "Nothing changed since your reviews." },
-  { key: "new", title: "New", hint: "Open in your projects, not reviewed yet", empty: "No unreviewed PRs in your projects." },
 ];
 
 export function Home({ active, onOpen, onSwitchAccount, refreshKey }: Props) {

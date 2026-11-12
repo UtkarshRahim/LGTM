@@ -289,13 +289,11 @@ export type NeedsYou = NeedsYou_Serialize | NeedsYou_Deserialize;
 export type NeedsYou_Deserialize = {
 	blocking: PrHit_Deserialize[],
 	rereview: PrHit_Deserialize[],
-	new: PrHit_Deserialize[],
 };
 
 export type NeedsYou_Serialize = {
 	blocking: PrHit_Serialize[],
 	rereview: PrHit_Serialize[],
-	new: PrHit_Serialize[],
 };
 
 export type PrCount = PrCount_Serialize | PrCount_Deserialize;

@@ -84,23 +84,23 @@ pub async fn search(state: State<'_, AppState>, input: String) -> AppResult<Sear
 pub struct NeedsYou {
     pub blocking: Vec<PrHit>,
     pub rereview: Vec<PrHit>,
-    pub new: Vec<PrHit>,
 }
 
 /// Home's queue, across github.com and every host your projects live on.
 #[tauri::command]
 #[specta::specta]
 pub async fn needs_you(state: State<'_, AppState>) -> AppResult<NeedsYou> {
-    let mut by_host = repos_by_host(&state)?;
-    by_host.entry(query::DEFAULT_HOST.into()).or_default();
+    let mut hosts: Vec<String> = repos_by_host(&state)?.into_keys().collect();
+    if !hosts.iter().any(|h| h == query::DEFAULT_HOST) {
+        hosts.push(query::DEFAULT_HOST.into());
+    }
     let mut out = NeedsYou::default();
-    for (host, repos) in by_host {
+    for host in hosts {
         let Ok(gh) = state.client(&host).await else { continue };
-        let n = pr::needs_you(&gh, &repos).await?;
+        let n = pr::needs_you(&gh).await?;
         let hits = |v: Vec<PrSummary>| v.into_iter().map(|s| hit(&state, s)).collect::<AppResult<Vec<_>>>();
         out.blocking.extend(hits(n.blocking)?);
         out.rereview.extend(hits(n.rereview)?);
-        out.new.extend(hits(n.new)?);
     }
     Ok(out)
 }
