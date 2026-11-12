@@ -163,6 +163,12 @@
 .project {
   padding: 5px 8px;
   border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.project[data-selected="true"] {
+  background: #1c2129;
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .project:hover {

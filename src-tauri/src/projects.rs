@@ -12,6 +12,7 @@ use tauri::{AppHandle, Manager, State};
 use tauri_specta::Event;
 
 use crate::error::{AppError, AppResult};
+use crate::prs::PrHit;
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Serialize, specta::Type)]
@@ -174,6 +175,26 @@ pub fn repos_by_host(state: &AppState) -> AppResult<BTreeMap<String, Vec<(String
         }
     }
     Ok(map)
+}
+
+/// Open PRs across every remote of one project.
+#[tauri::command]
+#[specta::specta]
+pub async fn project_prs(state: State<'_, AppState>, project_id: i32) -> AppResult<Vec<PrHit>> {
+    let remotes = remotes_by_project(&state)?.remove(&project_id).unwrap_or_default();
+    let mut by_host: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
+    for r in remotes {
+        by_host.entry(r.host).or_default().push((r.owner, r.repo));
+    }
+    let mut hits = Vec::new();
+    for (host, repos) in by_host {
+        let gh = state.client(&host).await?;
+        for summary in prism_gh::pr::open_in_repos(&gh, &repos).await? {
+            hits.push(PrHit { summary, project_id: Some(project_id) });
+        }
+    }
+    hits.sort_by(|a, b| b.summary.updated_at.cmp(&a.summary.updated_at));
+    Ok(hits)
 }
 
 /// Open PR counts across every remote, one GraphQL request per host.

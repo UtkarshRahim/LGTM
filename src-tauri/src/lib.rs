@@ -33,6 +33,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             projects::remove_project,
             projects::project_status,
             projects::project_pr_counts,
+            projects::project_prs,
             projects::checkout_pr,
             prs::search,
             prs::open_pr,

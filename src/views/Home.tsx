@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { commands, prKey, type AppError, type NeedsYou, type PrHit, type PrRef } from "../ipc";
+import { commands, prKey, type AppError, type NeedsYou, type PrHit, type PrRef, type Project } from "../ipc";
 import { ErrorNotice } from "../components/ErrorNotice";
 import { PrList } from "../components/PrList";
 import styles from "./Home.module.css";
@@ -10,6 +10,9 @@ interface Props {
   onSwitchAccount: () => void;
   /** Bumped when accounts or projects change, to refetch. */
   refreshKey: number;
+  /** When set, Home lists this project's open PRs instead of Needs you. */
+  project: Project | null;
+  onClearProject: () => void;
 }
 
 type Results = { label: string; hits: PrHit[] } | null;
@@ -19,13 +22,15 @@ const SECTIONS: { key: keyof NeedsYou; title: string; hint: string; empty: strin
   { key: "rereview", title: "Re-review", hint: "New commits since your review", empty: "Nothing changed since your reviews." },
 ];
 
-export function Home({ active, onOpen, onSwitchAccount, refreshKey }: Props) {
+export function Home({ active, onOpen, onSwitchAccount, refreshKey, project, onClearProject }: Props) {
   const [input, setInput] = useState("");
   const [results, setResults] = useState<Results>(null);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<AppError | null>(null);
   const [queue, setQueue] = useState<NeedsYou | null>(null);
   const [queueError, setQueueError] = useState<AppError | null>(null);
+  const [projectPrs, setProjectPrs] = useState<{ id: number; hits: PrHit[] } | null>(null);
+  const [projectError, setProjectError] = useState<AppError | null>(null);
   const [selected, setSelected] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const seq = useRef(0);
@@ -40,10 +45,29 @@ export function Home({ active, onOpen, onSwitchAccount, refreshKey }: Props) {
   };
   useEffect(loadQueue, [refreshKey]);
 
+  const projectId = project?.id ?? null;
+  const loadProject = () => {
+    if (projectId == null) return;
+    setProjectError(null);
+    commands.projectPrs(projectId).then((r) => {
+      if (r.status === "ok") setProjectPrs({ id: projectId, hits: r.data });
+      else setProjectError(r.error);
+    });
+  };
+  useEffect(loadProject, [projectId, refreshKey]);
+  const shownProjectPrs = projectPrs && projectPrs.id === projectId ? projectPrs.hits : null;
+
   // Every row the keyboard can reach, in display order.
   const visible: PrHit[] = useMemo(
-    () => (results ? results.hits : queue ? SECTIONS.flatMap((s) => queue[s.key]) : []),
-    [results, queue],
+    () =>
+      results
+        ? results.hits
+        : projectId != null
+          ? (shownProjectPrs ?? [])
+          : queue
+            ? SECTIONS.flatMap((s) => queue[s.key])
+            : [],
+    [results, queue, projectId, shownProjectPrs],
   );
   useEffect(() => setSelected(-1), [visible]);
 
@@ -120,7 +144,10 @@ export function Home({ active, onOpen, onSwitchAccount, refreshKey }: Props) {
           }}
           onKeyDown={(e) => {
             if (e.key === "Escape") {
-              if (!input && !results) return inputRef.current?.blur();
+              if (!input && !results) {
+                if (project) return onClearProject();
+                return inputRef.current?.blur();
+              }
               setInput("");
               setResults(null);
               setError(null);
@@ -144,7 +171,36 @@ export function Home({ active, onOpen, onSwitchAccount, refreshKey }: Props) {
           </section>
         )}
 
-        {!results && (
+        {!results && project && (
+          <>
+            <div className={styles.queueHead}>
+              <h2 className={styles.title}>{project.name}</h2>
+              <span className="muted">
+                Open pull requests{project.remotes.length > 1 && ` across ${project.remotes.length} remotes`}
+              </span>
+              <button className="btn ghost" onClick={loadProject}>
+                Refresh
+              </button>
+              <button className="btn ghost" onClick={onClearProject} title="Back to Needs you (Esc)">
+                ✕ Clear filter
+              </button>
+            </div>
+            {project.remotes.length === 0 && <p className="muted">This project has no GitHub remote.</p>}
+            {projectError && <ErrorNotice error={projectError} onSwitchAccount={onSwitchAccount} onRetry={loadProject} />}
+            {project.remotes.length > 0 && !shownProjectPrs && !projectError && <p className="muted">Loading…</p>}
+            {shownProjectPrs && shownProjectPrs.length === 0 && <p className="muted">No open pull requests.</p>}
+            {shownProjectPrs && shownProjectPrs.length > 0 && (
+              <PrList
+                key={shownProjectPrs.map((h) => prKey(h.summary.pr)).join()}
+                hits={shownProjectPrs}
+                onOpen={onOpen}
+                selected={selected}
+              />
+            )}
+          </>
+        )}
+
+        {!results && !project && (
           <>
             <div className={styles.queueHead}>
               <h2 className={styles.title}>Needs you</h2>

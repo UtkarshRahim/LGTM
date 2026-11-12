@@ -19,6 +19,8 @@ export const commands = {
 	projectStatus: (id: number) => typedError<ProjectStatus_Serialize | null, AppError_Serialize>(__TAURI_INVOKE("project_status", { id })),
 	/**  Open PR counts across every remote, one GraphQL request per host. */
 	projectPrCounts: () => typedError<PrCount_Serialize[], AppError_Serialize>(__TAURI_INVOKE("project_pr_counts")),
+	/**  Open PRs across every remote of one project. */
+	projectPrs: (projectId: number) => typedError<PrHit_Serialize[], AppError_Serialize>(__TAURI_INVOKE("project_prs", { projectId })),
 	checkoutPr: (projectId: number, pr: PrRef, mode: CheckoutMode, detach: boolean, force: boolean) => typedError<CheckoutOutcome_Serialize, AppError_Serialize>(__TAURI_INVOKE("checkout_pr", { projectId, pr, mode, detach, force })),
 	search: (input: string) => typedError<SearchOutcome_Serialize, AppError_Serialize>(__TAURI_INVOKE("search", { input })),
 	openPr: (pr: PrRef) => typedError<PrView_Serialize, AppError_Serialize>(__TAURI_INVOKE("open_pr", { pr })),

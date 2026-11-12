@@ -14,6 +14,9 @@ interface Props {
   onClose: (key: string) => void;
   projects: Project[];
   prCounts: Record<number, number | null>;
+  /** Project whose PRs Home is showing. */
+  selectedProject: number | null;
+  onSelectProject: (id: number) => void;
   onAddProject: () => void;
   onRemoveProject: (id: number) => void;
   accounts: Accounts | null;
@@ -68,7 +71,16 @@ export function Sidebar(p: Props) {
           </button>
         )}
         {p.projects.map((proj) => (
-          <div key={proj.id} className={styles.project} title={proj.path}>
+          <div
+            key={proj.id}
+            className={styles.project}
+            data-selected={p.selectedProject === proj.id}
+            title={proj.path}
+            role="button"
+            tabIndex={0}
+            onClick={() => p.onSelectProject(proj.id)}
+            onKeyDown={(e) => e.key === "Enter" && p.onSelectProject(proj.id)}
+          >
             <div className={styles.projectTop}>
               <span className={`${styles.grow} truncate`}>{proj.name}</span>
               {p.prCounts[proj.id] != null && (
@@ -76,7 +88,14 @@ export function Sidebar(p: Props) {
                   {p.prCounts[proj.id]}
                 </span>
               )}
-              <button className={styles.remove} onClick={() => p.onRemoveProject(proj.id)} aria-label="Remove project">
+              <button
+                className={styles.remove}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  p.onRemoveProject(proj.id);
+                }}
+                aria-label="Remove project"
+              >
                 ×
               </button>
             </div>

@@ -64,7 +64,7 @@
   font-size: var(--text-sm);
 }
 
-.queueHead :global(.btn) {
+.queueHead :global(.btn):first-of-type {
   margin-left: auto;
 }
 

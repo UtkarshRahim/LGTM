@@ -19,6 +19,7 @@ export function App() {
   const [dropping, setDropping] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [selectedProject, setSelectedProject] = useState<number | null>(null);
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
   const activeRef = useRef(active);
@@ -189,8 +190,14 @@ export function App() {
         onClose={closeTab}
         projects={projects}
         prCounts={prCounts}
+        selectedProject={active === "home" ? selectedProject : null}
+        onSelectProject={(id) => {
+          setSelectedProject((cur) => (cur === id && activeRef.current === "home" ? null : id));
+          setActive("home");
+        }}
         onAddProject={pickFolder}
         onRemoveProject={async (id) => {
+          if (selectedProject === id) setSelectedProject(null);
           await commands.removeProject(id);
           loadProjects();
         }}
@@ -209,7 +216,14 @@ export function App() {
       <main className={styles.main}>
         <div className={styles.topbar} data-tauri-drag-region />
         <div className={styles.view} hidden={active !== "home"}>
-          <Home active={active === "home"} onOpen={openPr} onSwitchAccount={() => setAccountMenuOpen(true)} refreshKey={refreshKey} />
+          <Home
+            active={active === "home"}
+            onOpen={openPr}
+            onSwitchAccount={() => setAccountMenuOpen(true)}
+            refreshKey={refreshKey}
+            project={projects.find((p) => p.id === selectedProject) ?? null}
+            onClearProject={() => setSelectedProject(null)}
+          />
         </div>
         {tabs.map((t) => {
           const key = prKey(t.pr);

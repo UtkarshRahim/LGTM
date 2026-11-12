@@ -275,7 +275,7 @@ pub struct NeedsYou {
 
 const OPEN_READY: &str = "is:pr is:open -is:draft archived:false";
 
-async fn search_prs(gh: &GitHub, q: &str) -> GhResult<Vec<PrSummary>> {
+async fn search_prs(gh: &GitHub, q: &str, first: u32) -> GhResult<Vec<PrSummary>> {
     #[derive(Deserialize)]
     struct Data {
         search: Nodes,
@@ -285,9 +285,9 @@ async fn search_prs(gh: &GitHub, q: &str) -> GhResult<Vec<PrSummary>> {
         nodes: Vec<Option<RawPr>>,
     }
     let query = format!(
-        "query($q: String!) {{ search(query: $q, type: ISSUE, first: 30) {{ nodes {{ ... on PullRequest {{ {PR_FIELDS} }} }} }} }}"
+        "query($q: String!, $first: Int!) {{ search(query: $q, type: ISSUE, first: $first) {{ nodes {{ ... on PullRequest {{ {PR_FIELDS} }} }} }} }}"
     );
-    let data: Data = gh.graphql(&query, json!({ "q": q }), "search").await?;
+    let data: Data = gh.graphql(&query, json!({ "q": q, "first": first }), "search").await?;
     Ok(data.search.nodes.into_iter().flatten().map(|p| p.into_summary(gh.host())).collect())
 }
 
@@ -338,8 +338,20 @@ async fn search_rereview(gh: &GitHub, q: &str) -> GhResult<Vec<PrSummary>> {
 pub async fn needs_you(gh: &GitHub) -> GhResult<NeedsYou> {
     let blocking_q = format!("{OPEN_READY} review-requested:@me sort:updated-desc");
     let rereview_q = format!("{OPEN_READY} reviewed-by:@me -review-requested:@me -author:@me sort:updated-desc");
-    let (blocking, rereview) = tokio::join!(search_prs(gh, &blocking_q), search_rereview(gh, &rereview_q));
+    let (blocking, rereview) = tokio::join!(search_prs(gh, &blocking_q, 30), search_rereview(gh, &rereview_q));
     Ok(NeedsYou { blocking: blocking?, rereview: rereview? })
+}
+
+/// Open PRs (drafts included) across `repos`, most recently updated first.
+pub async fn open_in_repos(gh: &GitHub, repos: &[(String, String)]) -> GhResult<Vec<PrSummary>> {
+    if repos.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut q = String::from("is:pr is:open archived:false sort:updated-desc");
+    for (o, r) in repos {
+        q.push_str(&format!(" repo:{o}/{r}"));
+    }
+    search_prs(gh, &q, 50).await
 }
 
 /// Open PR count per repo, in input order; `None` where the repo isn't visible.
@@ -436,6 +448,9 @@ mod live {
             let Some(gh) = client().await else { return };
             let n = needs_you(&gh).await.unwrap();
             println!("blocking {} rereview {}", n.blocking.len(), n.rereview.len());
+            let open = open_in_repos(&gh, &[("cli".into(), "cli".into()), ("cli".into(), "go-gh".into())]).await.unwrap();
+            assert!(!open.is_empty());
+            assert!(open.iter().all(|p| p.pr.owner == "cli" && p.state == PrState::Open));
             let threads = crate::threads::review_threads(&gh, &pr("cli", "cli", 9000)).await.unwrap();
             println!("{} threads on cli/cli#9000", threads.len());
         })

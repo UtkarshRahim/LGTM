@@ -44,6 +44,11 @@ mockIPC(
           rereview: [hit(103, "Migrate settings to TOML")],
         };
       }
+      case "project_prs":
+        return [101, 104, 105].map((n) => ({
+          summary: { ...fx.view.detail.summary, pr: { ...fx.pr, number: n }, title: `Project PR ${n}` },
+          project_id: 1,
+        }));
       case "search":
         return { kind: "list", query: { kind: "text", text: a.input }, hits: [] };
       case "pr_hunks":
@@ -62,7 +67,18 @@ function Harness() {
   if (params.get("view") === "home") {
     return (
       <div style={{ height: "100vh" }}>
-        <Home active onOpen={() => {}} onSwitchAccount={() => {}} refreshKey={0} />
+        <Home
+          active
+          onOpen={() => {}}
+          onSwitchAccount={() => {}}
+          refreshKey={0}
+          project={
+            params.get("project")
+              ? { id: 1, path: "/tmp/cli", name: "cli", remotes: [fx.pr, { ...fx.pr, owner: "me" }].map((r) => ({ remote: "origin", host: r.host, owner: r.owner, repo: r.repo })), status: null }
+              : null
+          }
+          onClearProject={() => {}}
+        />
       </div>
     );
   }
