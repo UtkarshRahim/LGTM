@@ -40,6 +40,8 @@ export interface Prepared {
   hl: (number[] | null)[];
   /** Index into `lines` where each hunk starts. */
   hunkStart: number[];
+  /** Hunk each line belongs to; multi-line comments stay within one. */
+  lineHunk: number[];
   hunks: FileHunks["hunks"];
   /** Widest line, in columns, with tabs counted as 4. */
   cols: number;
@@ -48,18 +50,20 @@ export interface Prepared {
 export function prepare(f: FileHunks): Prepared {
   const lines: DiffLine[] = [];
   const hunkStart: number[] = [];
+  const lineHunk: number[] = [];
   let cols = 0;
-  for (const h of f.hunks) {
+  for (const [hi, h] of f.hunks.entries()) {
     hunkStart.push(lines.length);
     for (const l of h.lines) {
       lines.push(l);
+      lineHunk.push(hi);
       let w = l.text.length;
       for (let i = l.text.indexOf("\t"); i !== -1; i = l.text.indexOf("\t", i + 1)) w += 3;
       if (w > cols) cols = w;
     }
   }
   const hl = f.highlights ? lines.map((_, i) => f.highlights![i] ?? null) : lines.map(() => null);
-  return { lines, hl, hunkStart, hunks: f.hunks, cols };
+  return { lines, hl, hunkStart, lineHunk, hunks: f.hunks, cols };
 }
 
 export function rowSize(r: Row): number {

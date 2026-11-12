@@ -149,8 +149,10 @@ export function DiffView(props: Props) {
   const [composer, setComposer] = useState<ComposerState | null>(null);
   const [resolving, setResolving] = useState<Set<string>>(new Set());
   // Last gutter click, so shift-click can extend it into a range.
-  const lastPick = useRef<{ path: string; anchor: Anchor } | null>(null);
-  const hovered = useRef<{ fi: number; anchor: Anchor } | null>(null);
+  const lastPick = useRef<{ path: string; anchor: Anchor; hi: number } | null>(null);
+  const hovered = useRef<Picked | null>(null);
+  // Dragging down (or up) the gutter "+" picks a range of lines.
+  const [drag, setDrag] = useState<{ from: Picked; to: Picked } | null>(null);
   const toggle = <T,>(set: (f: (s: Set<T>) => Set<T>) => void, key: T) =>
     set((s) => {
       const n = new Set(s);
@@ -410,16 +412,16 @@ export function DiffView(props: Props) {
   }, [layout]);
 
   const openNew = useCallback(
-    (fi: number, anchor: Anchor, extend: boolean) => {
+    ({ fi, anchor, hi }: Picked, extend: boolean, from?: Picked) => {
       const path = files[fi].path;
-      const prev = lastPick.current;
+      const prev = from ? { path, anchor: from.anchor, hi: from.hi } : extend ? lastPick.current : null;
       let start: number | null = null;
       let end = anchor;
-      if (extend && prev && prev.path === path && prev.anchor.side === anchor.side && prev.anchor.line !== anchor.line) {
+      if (prev && prev.path === path && prev.hi === hi && prev.anchor.side === anchor.side && prev.anchor.line !== anchor.line) {
         start = Math.min(prev.anchor.line, anchor.line);
         end = { side: anchor.side, line: Math.max(prev.anchor.line, anchor.line) };
       }
-      lastPick.current = { path, anchor };
+      lastPick.current = { path, anchor: from?.anchor ?? anchor, hi };
       setComposer((c) => ({
         target: { mode: "new", path, anchor: end, start },
         value: c?.target.mode === "new" ? c.value : EMPTY,
@@ -481,14 +483,49 @@ export function DiffView(props: Props) {
   // components stay memoized.
   const onCanvasOver = (e: MouseEvent) => {
     const el = (e.target as HTMLElement).closest<HTMLElement>("[data-a]");
-    hovered.current = el ? parseAnchor(el) : null;
+    const a = el ? parseAnchor(el) : null;
+    hovered.current = a;
+    if (a && drag && sameHunk(a, drag.from) && a.anchor.line !== drag.to.anchor.line) setDrag({ ...drag, to: a });
   };
-  const onCanvasClick = (e: MouseEvent) => {
+  const onCanvasDown = (e: MouseEvent) => {
+    if (e.button !== 0) return;
     const plus = (e.target as HTMLElement).closest(`.${styles.plus}`);
     const el = plus?.closest<HTMLElement>("[data-a]");
-    if (!el) return;
-    const a = parseAnchor(el);
-    if (a) openNew(a.fi, a.anchor, e.shiftKey);
+    const a = el && parseAnchor(el);
+    if (!a) return;
+    e.preventDefault();
+    if (e.shiftKey) openNew(a, true);
+    else setDrag({ from: a, to: a });
+  };
+  const dragRef = useRef(drag);
+  dragRef.current = drag;
+  const dragging = drag != null;
+  useEffect(() => {
+    if (!dragging) return;
+    const up = () => {
+      const d = dragRef.current;
+      setDrag(null);
+      if (d) openNew(d.to, false, d.from);
+    };
+    window.addEventListener("mouseup", up);
+    return () => window.removeEventListener("mouseup", up);
+  }, [dragging, openNew]);
+
+  // Lines highlighted as picked: the drag in progress, or the open composer's range.
+  const picked = useMemo(() => {
+    if (drag) {
+      const [a, b] = [drag.from.anchor.line, drag.to.anchor.line];
+      return { fi: drag.from.fi, side: drag.from.anchor.side, from: Math.min(a, b), to: Math.max(a, b) };
+    }
+    if (!composeNew) return null;
+    const fi = pathIndex.get(composeNew.path);
+    const { side, line } = composeNew.anchor;
+    return fi == null ? null : { fi, side, from: composeNew.start ?? line, to: line };
+  }, [drag, composeNew, pathIndex]);
+  const isPicked = (fi: number, line: DiffLine | null, side?: "old" | "new") => {
+    if (!picked || picked.fi !== fi || !line) return false;
+    const a = anchorOf(line, side);
+    return !!a && a.side === picked.side && a.line >= picked.from && a.line <= picked.to;
   };
 
   useEffect(() => {
@@ -570,7 +607,7 @@ export function DiffView(props: Props) {
         case "c": {
           const h = hovered.current;
           if (!h) return;
-          openNew(h.fi, h.anchor, e.shiftKey);
+          openNew(h, e.shiftKey);
           break;
         }
         default:
@@ -655,15 +692,46 @@ export function DiffView(props: Props) {
           </div>
         );
       }
-      case "line":
-        return <UnifiedLine fi={r.fi} line={prep!.lines[r.li]} hl={prep!.hl[r.li]} rightOnly={rightOnly} />;
-      case "pair":
+      case "line": {
+        const line = prep!.lines[r.li];
+        return (
+          <UnifiedLine
+            fi={r.fi}
+            hi={prep!.lineHunk[r.li]}
+            line={line}
+            hl={prep!.hl[r.li]}
+            rightOnly={rightOnly}
+            picked={isPicked(r.fi, line)}
+          />
+        );
+      }
+      case "pair": {
+        const hi = prep!.lineHunk[r.l ?? r.r!];
+        const left = r.l == null ? null : prep!.lines[r.l];
+        const right = r.r == null ? null : prep!.lines[r.r];
         return (
           <div className={styles.pair}>
-            <Half fi={r.fi} line={r.l == null ? null : prep!.lines[r.l]} hl={r.l == null ? null : prep!.hl[r.l]} side="old" rightOnly={rightOnly} />
-            <Half fi={r.fi} line={r.r == null ? null : prep!.lines[r.r]} hl={r.r == null ? null : prep!.hl[r.r]} side="new" rightOnly={rightOnly} />
+            <Half
+              fi={r.fi}
+              hi={hi}
+              line={left}
+              hl={r.l == null ? null : prep!.hl[r.l]}
+              side="old"
+              rightOnly={rightOnly}
+              picked={isPicked(r.fi, left, "old")}
+            />
+            <Half
+              fi={r.fi}
+              hi={hi}
+              line={right}
+              hl={r.r == null ? null : prep!.hl[r.r]}
+              side="new"
+              rightOnly={rightOnly}
+              picked={isPicked(r.fi, right, "new")}
+            />
           </div>
         );
+      }
       case "thread": {
         const th = threadById.get(r.id);
         if (!th) return null;
@@ -805,8 +873,9 @@ export function DiffView(props: Props) {
           ref={canvasRef}
           className={styles.canvas}
           style={{ height: v.getTotalSize() }}
+          data-dragging={dragging}
           onMouseOver={onCanvasOver}
-          onClick={onCanvasClick}
+          onMouseDown={onCanvasDown}
         >
           {items.map((it) => {
             const r = rows[it.index];
@@ -838,11 +907,20 @@ const NO_DRAFTS: LineDraft[] = [];
 const NO_FINDINGS: Finding[] = [];
 const EMPTY: ComposerValue = { body: "", label: null };
 
-function parseAnchor(el: HTMLElement): { fi: number; anchor: Anchor } | null {
-  const [fi, side, line] = (el.dataset.a ?? "").split(":");
-  if (side !== "LEFT" && side !== "RIGHT") return null;
-  return { fi: Number(fi), anchor: { side, line: Number(line) } };
+/** A commentable line under the pointer: its file, anchor and hunk. */
+interface Picked {
+  fi: number;
+  anchor: Anchor;
+  hi: number;
 }
+
+function parseAnchor(el: HTMLElement): Picked | null {
+  const [fi, side, line, hi] = (el.dataset.a ?? "").split(":");
+  if (side !== "LEFT" && side !== "RIGHT") return null;
+  return { fi: Number(fi), anchor: { side, line: Number(line) }, hi: Number(hi) };
+}
+
+const sameHunk = (a: Picked, b: Picked) => a.fi === b.fi && a.hi === b.hi && a.anchor.side === b.anchor.side;
 
 /** The commented lines as they read now, for a ```suggestion block. */
 function suggestionText(prep: Prepared, anchor: Anchor, start: number | null): string | null {
@@ -905,21 +983,24 @@ const SIGN = { add: "+", del: "−", context: " " } as const;
 
 interface LineProps {
   fi: number;
+  hi: number;
   line: DiffLine;
   hl: number[] | null;
   rightOnly: boolean;
+  /** Part of the range being commented on. */
+  picked: boolean;
 }
 
-function anchorAttr(fi: number, line: DiffLine, rightOnly: boolean, side?: "old" | "new"): string | undefined {
+function anchorAttr(fi: number, hi: number, line: DiffLine, rightOnly: boolean, side?: "old" | "new"): string | undefined {
   const a = anchorOf(line, side);
   if (!a || (rightOnly && a.side !== "RIGHT")) return undefined;
-  return `${fi}:${a.side}:${a.line}`;
+  return `${fi}:${a.side}:${a.line}:${hi}`;
 }
 
-const UnifiedLine = memo(function UnifiedLine({ fi, line, hl, rightOnly }: LineProps) {
-  const a = anchorAttr(fi, line, rightOnly);
+const UnifiedLine = memo(function UnifiedLine({ fi, hi, line, hl, rightOnly, picked }: LineProps) {
+  const a = anchorAttr(fi, hi, line, rightOnly);
   return (
-    <div className={styles.line} data-kind={line.kind} data-a={a}>
+    <div className={styles.line} data-kind={line.kind} data-a={a} data-picked={picked || undefined}>
       {a && <span className={styles.plus}>+</span>}
       <span className={styles.num}>{line.old ?? ""}</span>
       <span className={styles.num}>{line.new ?? ""}</span>
@@ -931,15 +1012,17 @@ const UnifiedLine = memo(function UnifiedLine({ fi, line, hl, rightOnly }: LineP
 
 const Half = memo(function Half({
   fi,
+  hi,
   line,
   hl,
   side,
   rightOnly,
+  picked,
 }: Omit<LineProps, "line"> & { line: DiffLine | null; side: "old" | "new" }) {
   if (!line) return <div className={styles.half} data-kind="empty" />;
-  const a = anchorAttr(fi, line, rightOnly, side);
+  const a = anchorAttr(fi, hi, line, rightOnly, side);
   return (
-    <div className={styles.half} data-kind={line.kind} data-a={a}>
+    <div className={styles.half} data-kind={line.kind} data-a={a} data-picked={picked || undefined}>
       {a && <span className={styles.plus}>+</span>}
       <span className={styles.num}>{side === "old" ? line.old : line.new}</span>
       <span className={styles.sign}>{SIGN[line.kind]}</span>

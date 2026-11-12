@@ -283,6 +283,20 @@
   opacity: 1;
 }
 
+.line[data-picked],
+.half[data-picked] {
+  box-shadow: inset 3px 0 0 var(--accent);
+  background-image: linear-gradient(rgb(106 168 255 / 0.16), rgb(106 168 255 / 0.16));
+}
+
+.canvas[data-dragging="true"] {
+  cursor: ns-resize;
+}
+
+.canvas[data-dragging="true"] .plus {
+  opacity: 0;
+}
+
 .viewed {
   display: flex;
   align-items: center;
