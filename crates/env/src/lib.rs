@@ -139,6 +139,15 @@ fn overlay(vars: &HashMap<String, String>) -> impl Iterator<Item = (&String, &St
     vars.iter().filter(|(k, _)| !SKIP.contains(&k.as_str()))
 }
 
+/// Looks up a variable in the login-shell environment, falling back to
+/// Prism's own. May block on first-ever launch like [`command`].
+pub fn var(key: &str) -> Option<String> {
+    vars_blocking()
+        .and_then(|vars| vars.get(key).cloned())
+        .or_else(|| std::env::var(key).ok())
+        .filter(|v| !v.is_empty())
+}
+
 /// A `std::process::Command` with the login-shell environment applied.
 /// May block on first-ever launch until the shell capture finishes.
 pub fn command(program: impl AsRef<OsStr>) -> Command {

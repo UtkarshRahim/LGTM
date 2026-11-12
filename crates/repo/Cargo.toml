@@ -5,3 +5,14 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+base64 = "0.23.1"
+notify = "8.2.2"
+prism-env = { version = "0.1.0", path = "../env" }
+serde = { version = "1.0.229", features = ["derive"] }
+specta = { version = "=2.0.0-rc.28", features = ["derive"] }
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["process", "sync", "fs", "rt", "macros", "time"] }
+tracing = "0.1.44"
+
+[dev-dependencies]
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros"] }

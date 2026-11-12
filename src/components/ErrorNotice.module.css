@@ -1,0 +1,28 @@
+.notice {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warning-fg);
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  display: grid;
+  gap: 6px;
+  max-width: 640px;
+}
+
+.title {
+  font-weight: 600;
+}
+
+.detail {
+  color: var(--muted);
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.actions:empty {
+  display: none;
+}

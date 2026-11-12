@@ -1,12 +1,17 @@
+mod accounts;
 mod commands;
 mod error;
+mod projects;
+mod prs;
 mod state;
 
-use std::sync::RwLock;
+use std::collections::HashMap;
+use std::sync::{Mutex, RwLock};
 
+use prism_repo::Mirrors;
 use prism_store::{Db, Settings};
 use tauri::Manager;
-use tauri_specta::{Builder, ErrorHandlingMode, collect_commands};
+use tauri_specta::{Builder, ErrorHandlingMode, collect_commands, collect_events};
 
 use crate::state::AppState;
 
@@ -19,7 +24,21 @@ fn specta_builder() -> Builder<tauri::Wry> {
             commands::app_info,
             commands::get_settings,
             commands::save_settings,
+            accounts::accounts,
+            accounts::refresh_accounts,
+            accounts::set_default_account,
+            projects::list_projects,
+            projects::add_project,
+            projects::remove_project,
+            projects::project_status,
+            projects::project_pr_counts,
+            projects::checkout_pr,
+            prs::search,
+            prs::involving_me,
+            prs::open_pr,
+            prs::pr_local_diff,
         ])
+        .events(collect_events![projects::ProjectStatusChanged, prs::PrUpdated])
 }
 
 fn export_bindings(builder: &Builder<tauri::Wry>) {
@@ -37,12 +56,15 @@ pub fn run() {
     export_bindings(&builder);
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             builder.mount_events(app);
             let paths = app.path();
             prism_env::init(paths.app_cache_dir()?.join("shell-env.json"));
-            let db_path = paths.app_data_dir()?.join("prism.db");
+            let data_dir = paths.app_data_dir()?;
+            let db_path = data_dir.join("prism.db");
             let settings_path = paths.app_config_dir()?.join("settings.toml");
             let db = Db::open(&db_path)?;
             let settings = Settings::load_or_init(&settings_path)?;
@@ -52,6 +74,17 @@ pub fn run() {
                 db_path,
                 settings: RwLock::new(settings),
                 settings_path,
+                mirrors: Mirrors::new(data_dir.join("mirrors")),
+                worktrees_dir: data_dir.join("worktrees"),
+                creds: tokio::sync::RwLock::new(None),
+                watchers: Mutex::new(HashMap::new()),
+            });
+
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let creds = handle.state::<AppState>().credentials().await;
+                tracing::info!(accounts = creds.len(), "accounts discovered");
+                projects::watch_all(&handle).await;
             });
             Ok(())
         })
