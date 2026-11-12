@@ -199,8 +199,6 @@ export type FileMeta_Deserialize = {
 	deletions: number,
 	patch_missing: boolean,
 	kind: FileKind,
-	/**  A test listed right after the source file it covers. */
-	paired_test: boolean,
 	/**
 	 *  Rows the file body takes in each layout (hunk headers included), so
 	 *  the UI can reserve space before the hunks are loaded.
@@ -218,8 +216,6 @@ export type FileMeta_Serialize = {
 	deletions: number,
 	patch_missing: boolean,
 	kind: FileKind,
-	/**  A test listed right after the source file it covers. */
-	paired_test: boolean,
 	/**
 	 *  Rows the file body takes in each layout (hunk headers included), so
 	 *  the UI can reserve space before the hunks are loaded.
@@ -227,10 +223,6 @@ export type FileMeta_Serialize = {
 	unified_rows: number,
 	split_rows: number,
 };
-
-export type FilePanel = 
-/**  Sources followed by their tests, generated files last. */
-"review_order" | "tree";
 
 export type FileStatus = "added" | "deleted" | "modified" | "renamed" | "copied";
 
@@ -602,14 +594,12 @@ export type UiSettings_Deserialize = {
 	ui_font?: string,
 	code_font?: string,
 	diff_layout?: DiffLayout,
-	file_panel?: FilePanel,
 };
 
 export type UiSettings_Serialize = {
 	ui_font: string,
 	code_font: string,
 	diff_layout: DiffLayout,
-	file_panel: FilePanel,
 };
 
 /* Tauri Specta runtime */

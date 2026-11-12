@@ -6,7 +6,7 @@ import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import "@fontsource-variable/inter";
 import "@fontsource-variable/jetbrains-mono";
 import "../src/styles/global.css";
-import type { DiffLayout, FileHunks, FilePanel, PrRef, PrView as View, ReviewThread } from "../src/ipc";
+import type { DiffLayout, FileHunks, PrRef, PrView as View, ReviewThread } from "../src/ipc";
 import { PrView } from "../src/views/PrView";
 import { Home } from "../src/views/Home";
 import { Sidebar } from "../src/components/Sidebar";
@@ -20,6 +20,14 @@ interface Fixture {
 
 const params = new URLSearchParams(location.search);
 const fx: Fixture = await (await fetch(`/harness/fixtures/${params.get("fixture") ?? "huge"}.json`)).json();
+fx.view.project_id = 1;
+const HARNESS_PROJECT = {
+  id: 1,
+  path: `/tmp/${fx.pr.repo}`,
+  name: fx.pr.repo,
+  remotes: [{ remote: "origin", host: fx.pr.host, owner: fx.pr.owner, repo: fx.pr.repo }],
+  status: null,
+};
 const byPath = new Map(fx.hunks.map((h) => [h.path, h]));
 const latency = Number(params.get("latency") ?? 15);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -64,7 +72,6 @@ mockIPC(
 
 function Harness() {
   const [layout, setLayout] = useState<DiffLayout>((params.get("layout") as DiffLayout) ?? "unified");
-  const [panel, setPanel] = useState<FilePanel>((params.get("panel") as FilePanel) ?? "review_order");
   if (params.get("view") === "sidebar") {
     const tabs = [1, 2, 3, 4, 5, 6].map((n) => ({ pr: { ...fx.pr, number: n }, title: `Review ${n}` }));
     const projects = ["prism", "cli", "tauri"].map((name, id) => ({ id, path: `/tmp/${name}`, name, remotes: [], status: null }));
@@ -113,11 +120,9 @@ function Harness() {
       <PrView
         pr={fx.pr}
         active
-        projects={[]}
+        projects={[HARNESS_PROJECT]}
         layout={layout}
-        panel={panel}
         onLayout={setLayout}
-        onPanel={setPanel}
         onTitle={() => {}}
         onSwitchAccount={() => {}}
       />

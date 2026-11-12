@@ -1,5 +1,5 @@
-//! Review order: sources first, each followed by its tests; then tests with
-//! no matching source; then generated, lock and vendored files.
+//! File order and classification. Files are listed as a directory tree shows
+//! them: at each level, directories before files, each sorted by name.
 
 use serde::Serialize;
 
@@ -81,46 +81,26 @@ fn test_stem(name: &str) -> Option<&str> {
     base.strip_prefix("test_").filter(|s| !s.is_empty())
 }
 
-fn common_dirs(a: &str, b: &str) -> usize {
-    split(a).0.iter().zip(split(b).0.iter()).take_while(|(x, y)| x == y).count()
+use std::cmp::Ordering;
+
+/// Compares paths in tree order: directories sort before files at the same level.
+pub fn tree_cmp(a: &str, b: &str) -> Ordering {
+    let (pa, pb): (Vec<&str>, Vec<&str>) = (a.split('/').collect(), b.split('/').collect());
+    for i in 0..pa.len().min(pb.len()) {
+        if pa[i] == pb[i] {
+            continue;
+        }
+        let (a_dir, b_dir) = (i + 1 < pa.len(), i + 1 < pb.len());
+        return b_dir.cmp(&a_dir).then_with(|| pa[i].cmp(pb[i]));
+    }
+    pa.len().cmp(&pb.len())
 }
 
-/// Returns indices into `paths` in review order, with each file's kind.
-/// Returns `(index, kind, paired)`; `paired` marks a test placed right after
-/// the source it covers.
-pub fn smart_order(paths: &[&str]) -> Vec<(usize, FileKind, bool)> {
-    let kinds: Vec<FileKind> = paths.iter().map(|p| classify(p)).collect();
-    let mut sources: Vec<usize> = (0..paths.len()).filter(|&i| kinds[i] == FileKind::Source).collect();
-    let mut tests: Vec<usize> = (0..paths.len()).filter(|&i| kinds[i] == FileKind::Test).collect();
-    let mut generated: Vec<usize> = (0..paths.len()).filter(|&i| kinds[i] == FileKind::Generated).collect();
-    for v in [&mut sources, &mut tests, &mut generated] {
-        v.sort_by_key(|&i| paths[i]);
-    }
-
-    // Attach each test to the source with the same stem sharing the most directories.
-    let mut attached: Vec<Vec<usize>> = vec![Vec::new(); paths.len()];
-    let mut orphans = Vec::new();
-    for &t in &tests {
-        let name = split(paths[t]).1;
-        let want = test_stem(name).unwrap_or_else(|| stem(name));
-        let best = sources
-            .iter()
-            .filter(|&&s| stem(split(paths[s]).1) == want)
-            .max_by_key(|&&s| (common_dirs(paths[s], paths[t]), std::cmp::Reverse(s)));
-        match best {
-            Some(&s) => attached[s].push(t),
-            None => orphans.push(t),
-        }
-    }
-
-    let mut out = Vec::with_capacity(paths.len());
-    for s in sources {
-        out.push((s, FileKind::Source, false));
-        out.extend(attached[s].iter().map(|&t| (t, FileKind::Test, true)));
-    }
-    out.extend(orphans.into_iter().map(|t| (t, FileKind::Test, false)));
-    out.extend(generated.into_iter().map(|g| (g, FileKind::Generated, false)));
-    out
+/// Indices into `paths` in tree order, with each file's kind.
+pub fn tree_order(paths: &[&str]) -> Vec<(usize, FileKind)> {
+    let mut idx: Vec<usize> = (0..paths.len()).collect();
+    idx.sort_by(|&a, &b| tree_cmp(paths[a], paths[b]));
+    idx.into_iter().map(|i| (i, classify(paths[i]))).collect()
 }
 
 #[cfg(test)]
@@ -145,36 +125,12 @@ mod tests {
     }
 
     #[test]
-    fn tests_follow_their_source() {
-        let paths = [
-            "Cargo.lock",
-            "src/api/user.ts",
-            "src/api/user.test.ts",
-            "src/ui/user.ts",
-            "src/ui/__tests__/user.test.tsx",
-            "src/auth.go",
-            "src/auth_test.go",
-            "tests/test_billing.py",
-            "README.md",
-            "src/billing.py",
-            "tests/integration.rs",
-        ];
-        let order: Vec<&str> = smart_order(&paths).into_iter().map(|(i, _, _)| paths[i]).collect();
+    fn directories_before_files() {
+        let paths = ["README.md", "src/ui/user.ts", "src/auth.go", "Cargo.lock", "src/api/user.ts", "tests/a.rs", "src/b.rs"];
+        let order: Vec<&str> = tree_order(&paths).into_iter().map(|(i, _)| paths[i]).collect();
         assert_eq!(
             order,
-            [
-                "README.md",
-                "src/api/user.ts",
-                "src/api/user.test.ts",
-                "src/auth.go",
-                "src/auth_test.go",
-                "src/billing.py",
-                "tests/test_billing.py",
-                "src/ui/user.ts",
-                "src/ui/__tests__/user.test.tsx",
-                "tests/integration.rs",
-                "Cargo.lock",
-            ]
+            ["src/api/user.ts", "src/ui/user.ts", "src/auth.go", "src/b.rs", "tests/a.rs", "Cargo.lock", "README.md"]
         );
     }
 }

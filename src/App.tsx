@@ -199,7 +199,6 @@ export function App() {
     [flash],
   );
   const setLayout = useCallback((diff_layout: Settings["ui"]["diff_layout"]) => updateUi({ diff_layout }), [updateUi]);
-  const setPanel = useCallback((file_panel: Settings["ui"]["file_panel"]) => updateUi({ file_panel }), [updateUi]);
 
   const afterAccountChange = (a: Accounts) => {
     setAccounts(a);
@@ -261,9 +260,7 @@ export function App() {
                 active={active === key}
                 projects={projects}
                 layout={settings?.ui.diff_layout ?? "unified"}
-                panel={settings?.ui.file_panel ?? "review_order"}
                 onLayout={setLayout}
-                onPanel={setPanel}
                 onTitle={(title) => setTabs((ts) => ts.map((x) => (prKey(x.pr) === key ? { ...x, title } : x)))}
                 onSwitchAccount={() => setAccountMenuOpen(true)}
               />

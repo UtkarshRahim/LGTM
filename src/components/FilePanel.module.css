@@ -7,33 +7,23 @@
   border-right: 1px solid var(--border);
 }
 
-.modes {
+.top {
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 8px 10px;
+  height: 36px;
+  padding: 0 12px;
   border-bottom: 1px solid var(--border);
-}
-
-.modes button {
-  border: 0;
-  border-radius: var(--radius);
-  background: transparent;
   color: var(--muted);
-  padding: 2px 8px;
-  font-size: var(--text-sm);
-  cursor: pointer;
-}
-
-.modes button[data-on="true"] {
-  background: var(--surface-2);
-  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .count {
   margin-left: auto;
-  color: var(--muted);
-  font-size: var(--text-sm);
+  font-weight: 400;
+  letter-spacing: 0;
 }
 
 .scroll {
@@ -67,7 +57,6 @@
   background: #17233a;
 }
 
-.item[data-kind="group"],
 .item[data-kind="dir"] {
   color: var(--muted);
 }
@@ -107,17 +96,8 @@
 }
 
 .name {
-  flex: none;
-  max-width: 70%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dir {
   flex: 1;
   min-width: 0;
-  color: #5d646e;
 }
 
 .threads {

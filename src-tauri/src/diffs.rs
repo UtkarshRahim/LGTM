@@ -27,8 +27,6 @@ pub struct FileMeta {
     pub deletions: u32,
     pub patch_missing: bool,
     pub kind: FileKind,
-    /// A test listed right after the source file it covers.
-    pub paired_test: bool,
     /// Rows the file body takes in each layout (hunk headers included), so
     /// the UI can reserve space before the hunks are loaded.
     pub unified_rows: u32,
@@ -46,7 +44,7 @@ pub struct FileHunks {
 
 pub struct PrDiff {
     files: Vec<FileDiff>,
-    kinds: Vec<(FileKind, bool)>,
+    kinds: Vec<FileKind>,
     index: HashMap<String, usize>,
     highlights: Vec<OnceLock<Option<Vec<LineSpans>>>>,
     /// Head commit, when this diff came from the local mirror.
@@ -56,10 +54,10 @@ pub struct PrDiff {
 impl PrDiff {
     pub fn new(files: Vec<FileDiff>) -> Self {
         let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
-        let order = order::smart_order(&paths);
+        let order = order::tree_order(&paths);
         let mut slots: Vec<Option<FileDiff>> = files.into_iter().map(Some).collect();
-        let (files, kinds): (Vec<FileDiff>, Vec<(FileKind, bool)>) =
-            order.into_iter().map(|(i, k, paired)| (slots[i].take().expect("index used once"), (k, paired))).unzip();
+        let (files, kinds): (Vec<FileDiff>, Vec<FileKind>) =
+            order.into_iter().map(|(i, k)| (slots[i].take().expect("index used once"), k)).unzip();
         let index = files.iter().enumerate().map(|(i, f)| (f.path.clone(), i)).collect();
         let highlights = files.iter().map(|_| OnceLock::new()).collect();
         Self { files, kinds, index, highlights, local_head: None }
@@ -78,7 +76,7 @@ impl PrDiff {
         self.files
             .iter()
             .zip(&self.kinds)
-            .map(|(f, &(kind, paired_test))| FileMeta {
+            .map(|(f, &kind)| FileMeta {
                 path: f.path.clone(),
                 old_path: f.old_path.clone(),
                 status: f.status,
@@ -87,7 +85,6 @@ impl PrDiff {
                 deletions: f.deletions,
                 patch_missing: f.patch_missing,
                 kind,
-                paired_test,
                 unified_rows: f.hunks.iter().map(|h| 1 + h.lines.len() as u32).sum(),
                 split_rows: f.hunks.iter().map(split_rows).sum(),
             })
@@ -228,10 +225,10 @@ diff --git a/yarn.lock b/yarn.lock
         let order: Vec<_> = metas.iter().map(|m| (m.path.as_str(), m.kind)).collect();
         assert_eq!(
             order,
-            [("src/a.ts", FileKind::Source), ("src/a.test.ts", FileKind::Test), ("yarn.lock", FileKind::Generated)]
+            [("src/a.test.ts", FileKind::Test), ("src/a.ts", FileKind::Source), ("yarn.lock", FileKind::Generated)]
         );
         // header + 5 lines; split: header, ctx, (del|add), (·|add), ctx
-        assert_eq!((metas[0].unified_rows, metas[0].split_rows), (6, 5));
+        assert_eq!((metas[1].unified_rows, metas[1].split_rows), (6, 5));
 
         let h = d.hunks(&["src/a.ts".into(), "missing".into()]);
         assert_eq!(h.len(), 1);

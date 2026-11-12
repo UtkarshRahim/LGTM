@@ -37,7 +37,7 @@ export function CheckoutButton({ project, pr }: Props) {
 
   return (
     <div className={styles.wrap}>
-      <button className="btn primary" disabled={phase.kind === "busy"} onClick={() => run("auto")} title={`Check out in ${project.name} (⌘↵)`} data-checkout>
+      <button className="btn" disabled={phase.kind === "busy"} onClick={() => run("auto")} title={`Check out in ${project.name} (⌘↵)`} data-checkout>
         {phase.kind === "busy" ? "Checking out…" : "Checkout locally"}
       </button>
 

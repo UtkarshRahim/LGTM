@@ -9,7 +9,6 @@ export type {
   CheckoutMode,
   CheckoutOutcome_Serialize as CheckoutOutcome,
   DiffLayout,
-  FilePanel,
   DiffLine_Serialize as DiffLine,
   FileHunks_Serialize as FileHunks,
   FileMeta_Serialize as FileMeta,

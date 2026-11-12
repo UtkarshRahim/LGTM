@@ -5,7 +5,6 @@ import {
   events,
   type AppError,
   type DiffLayout,
-  type FilePanel as PanelMode,
   type PrRef,
   type PrView as View,
   type Project,
@@ -23,16 +22,14 @@ interface Props {
   active: boolean;
   projects: Project[];
   layout: DiffLayout;
-  panel: PanelMode;
   onLayout: (l: DiffLayout) => void;
-  onPanel: (m: PanelMode) => void;
   onTitle: (title: string) => void;
   onSwitchAccount: () => void;
 }
 
 const NO_THREADS: ReviewThread[] = [];
 
-export function PrView({ pr, active, projects, layout, panel, onLayout, onPanel, onTitle, onSwitchAccount }: Props) {
+export function PrView({ pr, active, projects, layout, onLayout, onTitle, onSwitchAccount }: Props) {
   const [view, setView] = useState<View | null>(null);
   const [error, setError] = useState<AppError | null>(null);
   const [localState, setLocalState] = useState<"idle" | "loading" | "failed">("idle");
@@ -175,8 +172,6 @@ export function PrView({ pr, active, projects, layout, panel, onLayout, onPanel,
         <FilePanel
           files={view.files}
           current={currentFile}
-          mode={panel}
-          onMode={onPanel}
           onPick={pick}
           threadCounts={threadCounts}
         />
