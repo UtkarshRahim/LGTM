@@ -8,6 +8,9 @@ import { Home } from "./views/Home";
 import { PrView } from "./views/PrView";
 import styles from "./App.module.css";
 
+const ZOOM_KEY = "prism.zoom";
+const ZOOM_STEPS = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
+
 export function App() {
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [active, setActive] = useState("home");
@@ -85,6 +88,30 @@ export function App() {
     },
     [openPr],
   );
+
+  // Zoom the whole UI (text and diff rows scale together): ⌘/Ctrl + / − / 0.
+  const zoomRef = useRef(Number(localStorage.getItem(ZOOM_KEY)) || 1);
+  useEffect(() => {
+    if (zoomRef.current !== 1) getCurrentWebview().setZoom(zoomRef.current);
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      const cur = zoomRef.current;
+      let next: number;
+      if (e.key === "=" || e.key === "+") next = ZOOM_STEPS.find((z) => z > cur + 0.001) ?? cur;
+      else if (e.key === "-" || e.key === "_") next = ZOOM_STEPS.findLast((z) => z < cur - 0.001) ?? cur;
+      else if (e.key === "0") next = 1;
+      else return;
+      e.preventDefault();
+      zoomRef.current = next;
+      localStorage.setItem(ZOOM_KEY, String(next));
+      getCurrentWebview()
+        .setZoom(next)
+        .then(() => flash(`Zoom ${Math.round(next * 100)}%`))
+        .catch((err) => flash(`Couldn't zoom: ${err}`));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [flash]);
 
   // Keyboard: ⌘1 home, ⌘2–9 tabs, ⌘W close, ⌘O add project, ⌘↵ check out.
   useEffect(() => {
