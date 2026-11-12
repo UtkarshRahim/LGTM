@@ -256,7 +256,7 @@ pub async fn run_skill(app: AppHandle, state: State<'_, AppState>, pr: PrRef, sk
     let skill = discover(&state, Some(&pr))?
         .into_iter()
         .find(|s| s.id == skill_id)
-        .ok_or_else(|| AppError::invalid("That skill is no longer there"))?;
+        .ok_or_else(|| AppError::invalid("That review is no longer there"))?;
     let agent_id = state.settings.read().unwrap().skills.agent.clone();
     let (spec, available) = agents()
         .into_iter()
@@ -267,7 +267,7 @@ pub async fn run_skill(app: AppHandle, state: State<'_, AppState>, pr: PrRef, sk
     }
     let key = prs::key(&pr);
     if state.runs.inner.lock().unwrap().values().any(|l| l.running && l.pr == key) {
-        return Err(AppError::invalid("A skill is already running on this pull request"));
+        return Err(AppError::invalid("An auto review is already running on this pull request"));
     }
     let detail = prs::cached_detail(&state, &pr)?;
     let pr_id = state.db.pr_id(&pr.host, &pr.owner, &pr.repo, pr.number)?.expect("cached_detail found it");

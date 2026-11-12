@@ -63,7 +63,7 @@ export function SkillPalette({ view, error, busy, onRun, onPin, onAgent, onClose
         <input
           autoFocus
           className={styles.input}
-          placeholder="Run a review skill…"
+          placeholder="Run an auto review…"
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
@@ -72,15 +72,15 @@ export function SkillPalette({ view, error, busy, onRun, onPin, onAgent, onClose
         />
         <div ref={listRef} className={styles.list}>
           {error && <div className={styles.empty}>{error}</div>}
-          {!error && !view && <div className={styles.empty}>Looking for skills…</div>}
+          {!error && !view && <div className={styles.empty}>Looking for reviews…</div>}
           {view && view.skills.length === 0 && (
             <div className={styles.empty}>
-              No skills found. Add a folder with a <span className="mono">SKILL.md</span> to{" "}
+              No reviews found. Reviews are agent skills: add a folder with a <span className="mono">SKILL.md</span> to{" "}
               <span className="mono">.claude/skills</span>, <span className="mono">.cursor/skills</span> or{" "}
               <span className="mono">.agents/skills</span>, in the repository or your home folder.
             </div>
           )}
-          {view && view.skills.length > 0 && flat.length === 0 && <div className={styles.empty}>No skills match.</div>}
+          {view && view.skills.length > 0 && flat.length === 0 && <div className={styles.empty}>No reviews match.</div>}
           {groups.map((g) => (
             <div key={g.source}>
               <div className={styles.group}>{g.title}</div>
@@ -133,7 +133,7 @@ export function SkillPalette({ view, error, busy, onRun, onPin, onAgent, onClose
           </span>
           <span className={styles.spacer} />
           {busy ? (
-            <span className="muted">A skill is already running</span>
+            <span className="muted">A review is already running</span>
           ) : agent && !agent.available ? (
             <span className="muted">{agent.name} isn't installed</span>
           ) : (

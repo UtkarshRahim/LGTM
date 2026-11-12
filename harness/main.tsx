@@ -220,7 +220,7 @@ mockIPC(
       case "skill_run_log":
         return [];
       case "run_skill":
-        if (runs[0]?.status === "running") throw { kind: "invalid", message: "A skill is already running on this pull request" };
+        if (runs[0]?.status === "running") throw { kind: "invalid", message: "An auto review is already running on this pull request" };
         return { ...startRun(a.skillId as string, fx.view.detail.head_sha, false) };
       case "cancel_skill_run": {
         const run = runs.find((r) => r.id === a.runId);

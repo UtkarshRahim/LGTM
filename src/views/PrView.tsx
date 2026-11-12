@@ -102,7 +102,7 @@ export function PrView({ pr, active, projects, layout, onLayout, onTitle, onSwit
 
   const loadSkillState = useCallback(async () => {
     const r = await commands.prSkillState(pr);
-    if (r.status === "error") return setActionError(`Couldn't load skill runs: ${errorText(r.error)}`);
+    if (r.status === "error") return setActionError(`Couldn't load auto reviews: ${errorText(r.error)}`);
     setSkillState(r.data);
     const live = r.data.runs[0];
     if (live?.status === "running") {
@@ -378,9 +378,9 @@ export function PrView({ pr, active, projects, layout, onLayout, onTitle, onSwit
               className="btn ghost"
               data-on={panel}
               onClick={() => showPanel(!panel)}
-              title="Review skills (⌘R to run one)"
+              title="Auto review (⌘R to run one)"
             >
-              Skills{running ? " ·  running" : openCount > 0 ? ` · ${openCount}` : ""}
+              Auto review{running ? " ·  running" : openCount > 0 ? ` · ${openCount}` : ""}
             </button>
             {project && <CheckoutButton project={project} pr={pr} />}
             <ReviewSubmit pending={submittable} stale={local.drafts.length - submittable} onSubmit={onSubmit} />

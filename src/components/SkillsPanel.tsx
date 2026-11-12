@@ -97,10 +97,10 @@ export function SkillsPanel(props: Props) {
   return (
     <aside className={styles.panel}>
       <div className={styles.head}>
-        <span className={styles.heading}>Skills</span>
+        <span className={styles.heading}>Auto review</span>
         <span className={styles.spacer} />
-        <button className="btn" onClick={onOpenPalette} disabled={!!running} title="Choose a skill (⌘R)">
-          {pinnedName ? `Run ${pinnedName}` : "Run a skill"} <kbd>⌘R</kbd>
+        <button className="btn" onClick={onOpenPalette} disabled={!!running} title="Choose a review (⌘R)">
+          {pinnedName ? `Run ${pinnedName}` : "Run a review"} <kbd>⌘R</kbd>
         </button>
         <button className={styles.close} onClick={onClose} title="Hide">
           ×
@@ -110,7 +110,7 @@ export function SkillsPanel(props: Props) {
       <div className={styles.scroll}>
         {!latest && (
           <div className={styles.empty}>
-            Run a review skill on this pull request with <kbd>⌘R</kbd>. Its findings show up here and on the diff, where
+            Run an auto review on this pull request with <kbd>⌘R</kbd>. Its findings show up here and on the diff, where
             you can accept them as draft comments.
           </div>
         )}
