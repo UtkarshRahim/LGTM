@@ -33,6 +33,8 @@ pub struct ReviewThread {
     pub side: DiffSide,
     pub resolved: bool,
     pub outdated: bool,
+    pub can_resolve: bool,
+    pub can_reply: bool,
     pub comments: Vec<ReviewComment>,
 }
 
@@ -40,7 +42,7 @@ const QUERY: &str = "query($owner: String!, $repo: String!, $n: Int!, $after: St
   repository(owner: $owner, name: $repo) { pullRequest(number: $n) {
     reviewThreads(first: 100, after: $after) {
       pageInfo { hasNextPage endCursor }
-      nodes { id path line startLine originalLine diffSide isResolved isOutdated
+      nodes { id path line startLine originalLine diffSide isResolved isOutdated viewerCanResolve viewerCanUnresolve viewerCanReply
         comments(first: 100) { nodes { id author { login } bodyHTML createdAt url } } }
     } } } }";
 
@@ -55,6 +57,9 @@ struct RawThread {
     diff_side: DiffSide,
     is_resolved: bool,
     is_outdated: bool,
+    viewer_can_resolve: bool,
+    viewer_can_unresolve: bool,
+    viewer_can_reply: bool,
     comments: Nodes<RawComment>,
 }
 
@@ -129,6 +134,8 @@ pub async fn review_threads(gh: &GitHub, pr: &PrRef) -> GhResult<Vec<ReviewThrea
             side: t.diff_side,
             resolved: t.is_resolved,
             outdated: t.is_outdated,
+            can_resolve: if t.is_resolved { t.viewer_can_unresolve } else { t.viewer_can_resolve },
+            can_reply: t.viewer_can_reply,
             comments: t
                 .comments
                 .nodes

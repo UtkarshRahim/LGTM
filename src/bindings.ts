@@ -30,10 +30,29 @@ export const commands = {
 	 */
 	prSyncLocal: (pr: PrRef) => typedError<FileMeta_Serialize[], AppError_Serialize>(__TAURI_INVOKE("pr_sync_local", { pr })),
 	/**  Hunks (with syntax highlighting) for the given files of an opened PR. */
-	prHunks: (pr: PrRef, paths: string[]) => typedError<FileHunks_Serialize[], AppError_Serialize>(__TAURI_INVOKE("pr_hunks", { pr, paths })),
+	prHunks: (pr: PrRef, scope: DiffScope, paths: string[]) => typedError<FileHunks_Serialize[], AppError_Serialize>(__TAURI_INVOKE("pr_hunks", { pr, scope, paths })),
 	prThreads: (pr: PrRef) => typedError<ReviewThread_Serialize[], AppError_Serialize>(__TAURI_INVOKE("pr_threads", { pr })),
 	/**  Home's queue, across github.com and every host your projects live on. */
 	needsYou: () => typedError<NeedsYou_Serialize, AppError_Serialize>(__TAURI_INVOKE("needs_you")),
+	prLocalReview: (pr: PrRef) => typedError<LocalReview_Serialize, AppError_Serialize>(__TAURI_INVOKE("pr_local_review", { pr })),
+	addDraft: (pr: PrRef, headSha: string, target: DraftTarget_Deserialize, body: string, label: CommentLabel | null) => typedError<Draft_Serialize, AppError_Serialize>(__TAURI_INVOKE("add_draft", { pr, headSha, target, body, label })),
+	updateDraft: (id: number, body: string, label: CommentLabel | null) => typedError<null, AppError_Serialize>(__TAURI_INVOKE("update_draft", { id, body, label })),
+	deleteDraft: (id: number) => typedError<null, AppError_Serialize>(__TAURI_INVOKE("delete_draft", { id })),
+	/**  Marks a file viewed at its current patch hash, or clears the mark. */
+	setViewed: (pr: PrRef, path: string, patchHash: string | null) => typedError<null, AppError_Serialize>(__TAURI_INVOKE("set_viewed", { pr, path, patchHash })),
+	/**
+	 *  Posts every draft written against `head_sha` plus all queued replies,
+	 *  then deletes them locally. Returns the review's URL.
+	 */
+	submitReview: (pr: PrRef, headSha: string, event: ReviewEvent, body: string) => typedError<string, AppError_Serialize>(__TAURI_INVOKE("submit_review", { pr, headSha, event, body })),
+	setThreadResolved: (pr: PrRef, threadId: string, resolved: boolean) => typedError<null, AppError_Serialize>(__TAURI_INVOKE("set_thread_resolved", { pr, threadId, resolved })),
+	/**
+	 *  What changed since your last submitted review, or `None` if you haven't
+	 *  reviewed. Only files whose change differs from what you reviewed are
+	 *  listed, diffed from the reviewed commit to the current head; this also
+	 *  drops files that only arrived by merging the base branch in.
+	 */
+	prSinceReview: (pr: PrRef) => typedError<SinceReview_Serialize | null, AppError_Serialize>(__TAURI_INVOKE("pr_since_review", { pr })),
 };
 
 /** Events */
@@ -132,6 +151,8 @@ export type CheckoutSettings_Serialize = {
 	when_dirty: DirtyCheckout,
 };
 
+export type CommentLabel = "praise" | "nit" | "suggestion" | "question";
+
 export type DiffLayout = "unified" | "split";
 
 export type DiffLine = DiffLine_Serialize | DiffLine_Deserialize;
@@ -150,6 +171,8 @@ export type DiffLine_Serialize = {
 	text: string,
 };
 
+export type DiffScope = "all" | "since";
+
 export type DiffSide = "LEFT" | "RIGHT";
 
 export type DiffSource = 
@@ -157,6 +180,38 @@ export type DiffSource =
 "api" | "local";
 
 export type DirtyCheckout = "ask" | "worktree";
+
+export type Draft = Draft_Serialize | Draft_Deserialize;
+
+export type DraftTarget = DraftTarget_Serialize | DraftTarget_Deserialize;
+
+export type DraftTarget_Deserialize = { kind: "line"; path: string; line: number; side: DiffSide; start_line?: number | null; start_side?: DiffSide | null } | { kind: "reply"; thread_id: string };
+
+export type DraftTarget_Serialize = { kind: "line"; path: string; line: number; side: DiffSide; start_line: number | null; start_side: DiffSide | null } | { kind: "reply"; thread_id: string };
+
+export type Draft_Deserialize = {
+	id: number,
+	target: DraftTarget_Deserialize,
+	body: string,
+	label?: CommentLabel | null,
+	/**
+	 *  Head the draft was written against; line drafts on an older head
+	 *  aren't submitted until they're re-placed.
+	 */
+	head_sha: string,
+};
+
+export type Draft_Serialize = {
+	id: number,
+	target: DraftTarget_Serialize,
+	body: string,
+	label: CommentLabel | null,
+	/**
+	 *  Head the draft was written against; line drafts on an older head
+	 *  aren't submitted until they're re-placed.
+	 */
+	head_sha: string,
+};
 
 export type EnvSource = 
 /**  No capture available yet; children inherit Prism's own environment. */
@@ -199,6 +254,8 @@ export type FileMeta_Deserialize = {
 	deletions: number,
 	patch_missing: boolean,
 	kind: FileKind,
+	/**  Identifies the file's change; a viewed mark only holds while it matches. */
+	patch_hash: string,
 	/**
 	 *  Rows the file body takes in each layout (hunk headers included), so
 	 *  the UI can reserve space before the hunks are loaded.
@@ -216,6 +273,8 @@ export type FileMeta_Serialize = {
 	deletions: number,
 	patch_missing: boolean,
 	kind: FileKind,
+	/**  Identifies the file's change; a viewed mark only holds while it matches. */
+	patch_hash: string,
 	/**
 	 *  Rows the file body takes in each layout (hunk headers included), so
 	 *  the UI can reserve space before the hunks are loaded.
@@ -277,6 +336,18 @@ export type Hunk_Serialize = {
 };
 
 export type LineKind = "context" | "add" | "del";
+
+export type LocalReview = LocalReview_Serialize | LocalReview_Deserialize;
+
+export type LocalReview_Deserialize = {
+	drafts: Draft_Deserialize[],
+	viewed: ViewedFile[],
+};
+
+export type LocalReview_Serialize = {
+	drafts: Draft_Serialize[],
+	viewed: ViewedFile[],
+};
 
 export type NeedsYou = NeedsYou_Serialize | NeedsYou_Deserialize;
 
@@ -497,6 +568,8 @@ export type ReviewComment_Serialize = {
 	url: string,
 };
 
+export type ReviewEvent = "COMMENT" | "APPROVE" | "REQUEST_CHANGES";
+
 export type ReviewThread = ReviewThread_Serialize | ReviewThread_Deserialize;
 
 export type ReviewThread_Deserialize = {
@@ -509,6 +582,8 @@ export type ReviewThread_Deserialize = {
 	side: DiffSide,
 	resolved: boolean,
 	outdated: boolean,
+	can_resolve: boolean,
+	can_reply: boolean,
 	comments: ReviewComment_Deserialize[],
 };
 
@@ -522,6 +597,8 @@ export type ReviewThread_Serialize = {
 	side: DiffSide,
 	resolved: boolean,
 	outdated: boolean,
+	can_resolve: boolean,
+	can_reply: boolean,
 	comments: ReviewComment_Serialize[],
 };
 
@@ -576,6 +653,30 @@ export type ShellEnvStatus_Serialize = {
 	error: string | null,
 };
 
+export type SinceReview = SinceReview_Serialize | SinceReview_Deserialize;
+
+export type SinceReview_Deserialize = {
+	reviewed_sha: string,
+	head_sha: string,
+	/**
+	 *  The branch was force-pushed since your review, so only files whose
+	 *  change differs from what you reviewed are shown.
+	 */
+	rewritten: boolean,
+	files: FileMeta_Deserialize[],
+};
+
+export type SinceReview_Serialize = {
+	reviewed_sha: string,
+	head_sha: string,
+	/**
+	 *  The branch was force-pushed since your review, so only files whose
+	 *  change differs from what you reviewed are shown.
+	 */
+	rewritten: boolean,
+	files: FileMeta_Serialize[],
+};
+
 export type SkillSettings = SkillSettings_Serialize | SkillSettings_Deserialize;
 
 export type SkillSettings_Deserialize = {
@@ -600,6 +701,11 @@ export type UiSettings_Serialize = {
 	ui_font: string,
 	code_font: string,
 	diff_layout: DiffLayout,
+};
+
+export type ViewedFile = {
+	path: string,
+	patch_hash: string,
 };
 
 /* Tauri Specta runtime */

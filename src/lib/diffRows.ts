@@ -1,4 +1,4 @@
-import type { DiffLayout, DiffLine, FileHunks, FileMeta, ReviewThread } from "../ipc";
+import type { DiffLayout, DiffLine, DiffSide, Draft, FileHunks, FileMeta, ReviewThread } from "../ipc";
 
 export const ROW_H = 20;
 export const FILE_H = 36;
@@ -16,7 +16,19 @@ export type Row =
   | { t: "line"; fi: number; li: number }
   | { t: "pair"; fi: number; l: number | null; r: number | null }
   | { t: "thread"; fi: number; id: string }
-  | { t: "outdated"; fi: number; ids: string[] };
+  | { t: "outdated"; fi: number; ids: string[] }
+  | { t: "draft"; fi: number; id: number }
+  /** Drafts written against an older head, or whose line left the diff. */
+  | { t: "stale"; fi: number; ids: number[] }
+  | { t: "compose"; fi: number };
+
+/** A line you can comment on: the side of the diff and its line number there. */
+export interface Anchor {
+  side: DiffSide;
+  line: number;
+}
+
+export type LineDraft = Draft & { target: { kind: "line" } };
 
 /** A file's hunks flattened for rendering; `lines[i]` pairs with `hl[i]`. */
 export interface Prepared {
@@ -58,13 +70,17 @@ export function rowSize(r: Row): number {
       return r.rows * ROW_H;
     case "thread":
     case "outdated":
+    case "draft":
+    case "stale":
+    case "compose":
       return THREAD_ESTIMATE;
     default:
       return ROW_H;
   }
 }
 
-export const isDynamic = (r: Row) => r.t === "thread" || r.t === "outdated";
+export const isDynamic = (r: Row) =>
+  r.t === "thread" || r.t === "outdated" || r.t === "draft" || r.t === "stale" || r.t === "compose";
 
 export function rowKey(r: Row): string {
   switch (r.t) {
@@ -83,10 +99,22 @@ export function rowKey(r: Row): string {
       return `t:${r.id}`;
     case "outdated":
       return `${r.fi}:outdated`;
+    case "draft":
+      return `d:${r.id}`;
+    case "stale":
+      return `${r.fi}:stale`;
+    case "compose":
+      return `${r.fi}:compose`;
   }
 }
 
-const anchor = (side: "LEFT" | "RIGHT", line: number) => `${side}:${line}`;
+const anchor = (side: DiffSide, line: number) => `${side}:${line}`;
+
+/** Lines in the old file are commented on the LEFT; added and context lines on the RIGHT. */
+export function anchorOf(l: DiffLine, side?: "old" | "new"): Anchor | null {
+  if (side === "old" || (!side && l.kind === "del")) return l.old == null ? null : { side: "LEFT", line: l.old };
+  return l.new == null ? null : { side: "RIGHT", line: l.new };
+}
 
 interface FileInput {
   fi: number;
@@ -95,10 +123,18 @@ interface FileInput {
   layout: DiffLayout;
   collapsed: boolean;
   threads: ReviewThread[];
+  drafts: LineDraft[];
+  headSha: string;
+  /** Where the open composer for a new comment sits, if it's in this file. */
+  compose: Anchor | null;
+  /** Only RIGHT-side anchors mean the same thing here ("since your review"),
+   * so nothing else is placed or listed as outdated. */
+  rightOnly: boolean;
   syncing: boolean;
 }
 
-export function fileRows({ fi, meta, prep, layout, collapsed, threads, syncing }: FileInput): Row[] {
+export function fileRows(input: FileInput): Row[] {
+  const { fi, meta, prep, layout, collapsed, threads, drafts, headSha, compose, rightOnly, syncing } = input;
   const rows: Row[] = [{ t: "gap", fi }, { t: "file", fi }];
   if (collapsed) return rows;
   if (meta.binary) return [...rows, { t: "note", fi, text: "Binary file" }];
@@ -116,18 +152,42 @@ export function fileRows({ fi, meta, prep, layout, collapsed, threads, syncing }
 
   const byAnchor = new Map<string, ReviewThread[]>();
   for (const th of threads) {
-    if (th.line == null) continue;
+    if (th.line == null || (rightOnly && th.side !== "RIGHT")) continue;
     const k = anchor(th.side, th.line);
     byAnchor.set(k, [...(byAnchor.get(k) ?? []), th]);
   }
+  const draftsAt = new Map<string, LineDraft[]>();
+  const stale: number[] = [];
+  for (const d of drafts) {
+    if (d.head_sha !== headSha) {
+      stale.push(d.id);
+      continue;
+    }
+    if (rightOnly && d.target.side !== "RIGHT") continue;
+    const k = anchor(d.target.side, d.target.line);
+    draftsAt.set(k, [...(draftsAt.get(k) ?? []), d]);
+  }
+  const composeKey = compose && anchor(compose.side, compose.line);
   const placed = new Set<string>();
+  const placedDrafts = new Set<number>();
+  let composed = false;
   const body: Row[] = [];
-  const threadsAt = (side: "LEFT" | "RIGHT", line: number | null) => {
-    if (line == null) return;
-    for (const th of byAnchor.get(anchor(side, line)) ?? []) {
+  const threadsAt = (side: DiffSide, line: number | null) => {
+    if (line == null || (rightOnly && side !== "RIGHT")) return;
+    const k = anchor(side, line);
+    for (const th of byAnchor.get(k) ?? []) {
       if (placed.has(th.id)) continue;
       placed.add(th.id);
       body.push({ t: "thread", fi, id: th.id });
+    }
+    for (const d of draftsAt.get(k) ?? []) {
+      if (placedDrafts.has(d.id)) continue;
+      placedDrafts.add(d.id);
+      body.push({ t: "draft", fi, id: d.id });
+    }
+    if (k === composeKey && !composed) {
+      composed = true;
+      body.push({ t: "compose", fi });
     }
   };
   const threadsFor = (l: DiffLine) => {
@@ -168,8 +228,12 @@ export function fileRows({ fi, meta, prep, layout, collapsed, threads, syncing }
     }
   });
 
-  const unplaced = threads.filter((th) => !placed.has(th.id)).map((th) => th.id);
-  if (unplaced.length) rows.push({ t: "outdated", fi, ids: unplaced });
+  if (!rightOnly) {
+    for (const ds of draftsAt.values()) for (const d of ds) if (!placedDrafts.has(d.id)) stale.push(d.id);
+    if (stale.length) rows.push({ t: "stale", fi, ids: stale });
+    const unplaced = threads.filter((th) => !placed.has(th.id)).map((th) => th.id);
+    if (unplaced.length) rows.push({ t: "outdated", fi, ids: unplaced });
+  }
   return [...rows, ...body];
 }
 

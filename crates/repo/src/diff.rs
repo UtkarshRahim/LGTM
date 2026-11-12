@@ -52,6 +52,32 @@ pub struct FileDiff {
 }
 
 impl FileDiff {
+    /// Identifies what this file's change is, ignoring line numbers and
+    /// context, so it survives rebases that only move the change around.
+    pub fn patch_hash(&self) -> String {
+        const PRIME: u64 = 0x0000_0100_0000_01b3;
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut eat = |bytes: &[u8]| {
+            for b in bytes {
+                h = (h ^ u64::from(*b)).wrapping_mul(PRIME);
+            }
+            h = (h ^ 0xff).wrapping_mul(PRIME);
+        };
+        eat(format!("{:?}", self.status).as_bytes());
+        eat(self.old_path.as_deref().unwrap_or("").as_bytes());
+        if self.binary || self.patch_missing {
+            eat(format!("{} {} {}", self.binary, self.additions, self.deletions).as_bytes());
+        }
+        for l in self.hunks.iter().flat_map(|h| &h.lines) {
+            match l.kind {
+                LineKind::Add => eat(&[b"+", l.text.as_bytes()].concat()),
+                LineKind::Del => eat(&[b"-", l.text.as_bytes()].concat()),
+                LineKind::Context => {}
+            }
+        }
+        format!("{h:016x}")
+    }
+
     fn new(path: String) -> Self {
         Self {
             path,
@@ -366,6 +392,15 @@ new file mode 100644
     fn bare_patch_matches_git_hunks() {
         let patch = "@@ -1,4 +1,5 @@ mod a;\n use std::fmt;\n-fn old() {}\n+fn new() {}\n+fn extra() {}\n \n fn tail() {}\n@@ -10 +11 @@\n-x\n\\ No newline at end of file\n+y\n\\ No newline at end of file";
         assert_eq!(parse_patch(patch), parse_git_diff(SAMPLE)[0].hunks);
+    }
+
+    #[test]
+    fn patch_hash_ignores_position_and_context() {
+        let a = &parse_git_diff("diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1,3 +1,3 @@\n ctx\n-a\n+b\n tail\n")[0];
+        let moved = &parse_git_diff("diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -40,3 +41,3 @@\n other\n-a\n+b\n end\n")[0];
+        let changed = &parse_git_diff("diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1,3 +1,3 @@\n ctx\n-a\n+c\n tail\n")[0];
+        assert_eq!(a.patch_hash(), moved.patch_hash());
+        assert_ne!(a.patch_hash(), changed.patch_hash());
     }
 
     #[test]

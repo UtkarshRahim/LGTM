@@ -6,7 +6,7 @@ import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import "@fontsource-variable/inter";
 import "@fontsource-variable/jetbrains-mono";
 import "../src/styles/global.css";
-import type { DiffLayout, FileHunks, PrRef, PrView as View, ReviewThread } from "../src/ipc";
+import type { DiffLayout, Draft, FileHunks, LocalReview, PrRef, PrView as View, ReviewThread } from "../src/ipc";
 import { PrView } from "../src/views/PrView";
 import { Home } from "../src/views/Home";
 import { Sidebar } from "../src/components/Sidebar";
@@ -31,6 +31,10 @@ const HARNESS_PROJECT = {
 const byPath = new Map(fx.hunks.map((h) => [h.path, h]));
 const latency = Number(params.get("latency") ?? 15);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// `?reviewed=1` pretends you reviewed an earlier, force-pushed head.
+const reviewed = params.get("reviewed");
+const local: LocalReview = { drafts: [], viewed: [] };
+let nextDraft = 1;
 
 mockWindows("main");
 mockIPC(
@@ -63,6 +67,40 @@ mockIPC(
       case "pr_hunks":
         await sleep(latency);
         return (a.paths as string[]).flatMap((p) => byPath.get(p) ?? []);
+      case "pr_local_review":
+        return structuredClone(local);
+      case "add_draft": {
+        const d = { id: nextDraft++, target: a.target, body: a.body, label: a.label, head_sha: a.headSha } as Draft;
+        local.drafts = [...local.drafts, d];
+        return d;
+      }
+      case "update_draft":
+        local.drafts = local.drafts.map((d) => (d.id === a.id ? { ...d, body: a.body as string, label: a.label as Draft["label"] } : d));
+        return null;
+      case "delete_draft":
+        local.drafts = local.drafts.filter((d) => d.id !== a.id);
+        return null;
+      case "set_viewed":
+        local.viewed = local.viewed.filter((v) => v.path !== a.path);
+        if (a.patchHash) local.viewed.push({ path: a.path as string, patch_hash: a.patchHash as string });
+        return null;
+      case "set_thread_resolved":
+        await sleep(200);
+        return null;
+      case "submit_review":
+        await sleep(400);
+        if (local.drafts.length === 0 && !(a.body as string).trim()) throw { kind: "invalid", message: "Write a comment or a summary first" };
+        local.drafts = [];
+        return `https://github.com/${fx.pr.owner}/${fx.pr.repo}/pull/${fx.pr.number}#pullrequestreview-1`;
+      case "pr_since_review":
+        await sleep(300);
+        if (!reviewed) return null;
+        return {
+          reviewed_sha: "538b4682e8c3b58a81397e331afbdc0be7d5674d",
+          head_sha: fx.view.detail.head_sha,
+          rewritten: true,
+          files: fx.view.files.filter((_, i) => i % 2 === 0),
+        };
       default:
         throw new Error(`harness: unmocked command ${cmd}`);
     }

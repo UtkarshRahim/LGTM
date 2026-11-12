@@ -46,8 +46,7 @@
   gap: 16px;
 }
 
-.metaRow .segmented {
-  flex: none;
+.metaRow .toggles {
   margin-left: auto;
 }
 
@@ -149,4 +148,23 @@
 .segmented button[data-on="true"] {
   background: var(--surface-2);
   color: var(--text);
+}
+
+.toggles {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+
+.segmented button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.info {
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  font-size: var(--text-sm);
+  background: #14243a;
+  color: var(--accent);
 }

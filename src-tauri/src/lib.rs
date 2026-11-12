@@ -4,6 +4,7 @@ mod diffs;
 mod error;
 mod projects;
 mod prs;
+mod review;
 mod state;
 
 use std::collections::HashMap;
@@ -41,6 +42,14 @@ fn specta_builder() -> Builder<tauri::Wry> {
             prs::pr_hunks,
             prs::pr_threads,
             prs::needs_you,
+            review::pr_local_review,
+            review::add_draft,
+            review::update_draft,
+            review::delete_draft,
+            review::set_viewed,
+            review::submit_review,
+            review::set_thread_resolved,
+            review::pr_since_review,
         ])
         .constant("HIGHLIGHT_CLASSES", prism_syntax::CLASSES)
         .events(collect_events![projects::ProjectStatusChanged, prs::PrUpdated])

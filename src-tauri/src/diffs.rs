@@ -27,6 +27,8 @@ pub struct FileMeta {
     pub deletions: u32,
     pub patch_missing: bool,
     pub kind: FileKind,
+    /// Identifies the file's change; a viewed mark only holds while it matches.
+    pub patch_hash: String,
     /// Rows the file body takes in each layout (hunk headers included), so
     /// the UI can reserve space before the hunks are loaded.
     pub unified_rows: u32,
@@ -72,6 +74,10 @@ impl PrDiff {
         self.local_head.as_deref() == Some(head)
     }
 
+    pub fn local_head(&self) -> Option<&str> {
+        self.local_head.as_deref()
+    }
+
     pub fn metas(&self) -> Vec<FileMeta> {
         self.files
             .iter()
@@ -85,6 +91,7 @@ impl PrDiff {
                 deletions: f.deletions,
                 patch_missing: f.patch_missing,
                 kind,
+                patch_hash: f.patch_hash(),
                 unified_rows: f.hunks.iter().map(|h| 1 + h.lines.len() as u32).sum(),
                 split_rows: f.hunks.iter().map(split_rows).sum(),
             })

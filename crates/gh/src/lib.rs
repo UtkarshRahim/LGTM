@@ -3,6 +3,7 @@ pub mod client;
 pub mod error;
 pub mod pr;
 pub mod query;
+pub mod review;
 pub mod threads;
 
 pub use auth::{Account, Credential, TokenSource};

@@ -93,7 +93,7 @@ impl GitHub {
 
     pub async fn rest_get<T: DeserializeOwned>(&self, path: &str) -> GhResult<T> {
         let url = format!("{}{path}", self.rest_base);
-        let resp = self.send(|| self.request(reqwest::Method::GET, &url), path).await?;
+        let resp = self.send(|| self.request(reqwest::Method::GET, &url), path, true).await?;
         Ok(resp.json().await?)
     }
 
@@ -106,15 +106,36 @@ impl GitHub {
         data.ok_or_else(|| GhError::api("GraphQL response had no data"))
     }
 
+    /// Runs a GraphQL mutation. Unlike queries, it is only retried when GitHub
+    /// certainly didn't apply it (connection refused, rate limited), so a
+    /// timeout or server error can't post the same review twice.
+    pub async fn mutate<T: DeserializeOwned>(&self, query: &str, variables: Value, what: &str) -> GhResult<T> {
+        let Partial { data, errors } = self.post_graphql(query, variables, what, false).await?;
+        if let Some(e) = errors.into_iter().next() {
+            return Err(self.classify_graphql(&e, what));
+        }
+        data.ok_or_else(|| GhError::api("GraphQL response had no data"))
+    }
+
     pub async fn graphql_partial<T: DeserializeOwned>(
         &self,
         query: &str,
         variables: Value,
         what: &str,
     ) -> GhResult<Partial<T>> {
+        self.post_graphql(query, variables, what, true).await
+    }
+
+    async fn post_graphql<T: DeserializeOwned>(
+        &self,
+        query: &str,
+        variables: Value,
+        what: &str,
+        idempotent: bool,
+    ) -> GhResult<Partial<T>> {
         let body = serde_json::json!({ "query": query, "variables": variables });
         let resp = self
-            .send(|| self.request(reqwest::Method::POST, &self.graphql_url).json(&body), what)
+            .send(|| self.request(reqwest::Method::POST, &self.graphql_url).json(&body), what, idempotent)
             .await?;
         let parsed: GraphqlResponse<T> = resp.json().await?;
         if parsed.data.is_none() {
@@ -145,7 +166,9 @@ impl GitHub {
         GhError::SsoRequired { org, url }
     }
 
-    async fn send(&self, build: impl Fn() -> RequestBuilder, what: &str) -> GhResult<Response> {
+    /// `idempotent: false` limits retries to failures where the request
+    /// never took effect.
+    async fn send(&self, build: impl Fn() -> RequestBuilder, what: &str, idempotent: bool) -> GhResult<Response> {
         let mut attempt = 0;
         loop {
             attempt += 1;
@@ -155,7 +178,7 @@ impl GitHub {
             };
             let resp = match result {
                 Ok(r) => r,
-                Err(e) if attempt < MAX_ATTEMPTS && (e.is_connect() || e.is_timeout()) => {
+                Err(e) if attempt < MAX_ATTEMPTS && (e.is_connect() || (idempotent && e.is_timeout())) => {
                     tokio::time::sleep(backoff(attempt)).await;
                     continue;
                 }
@@ -169,7 +192,7 @@ impl GitHub {
             let headers = resp.headers().clone();
             let body = resp.text().await.unwrap_or_default();
             match self.classify_status(status, &headers, &body, what) {
-                Retry::After(wait) if attempt < MAX_ATTEMPTS => {
+                Retry::After(wait) if attempt < MAX_ATTEMPTS && (idempotent || !status.is_server_error()) => {
                     tracing::debug!(%status, ?wait, attempt, "retrying GitHub request");
                     tokio::time::sleep(wait).await;
                 }

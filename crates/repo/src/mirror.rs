@@ -46,6 +46,19 @@ impl Mirrors {
 
     /// Diff `base..head` for PR `number`, fetching whatever is missing.
     pub async fn diff(&self, r: &MirrorRepo<'_>, number: u32, base: &str, head: &str) -> GitResult<Vec<FileDiff>> {
+        let pins = [(format!("refs/prism/pull/{number}/base"), base), (format!("refs/prism/pull/{number}/head"), head)];
+        let mut out = self.diffs(r, &pins, &[(base, head)]).await?;
+        Ok(out.remove(0))
+    }
+
+    /// Fetches the pinned commits if any are missing, keeps them reachable
+    /// under the given refs, and returns one diff per `(from, to)` pair.
+    pub async fn diffs(
+        &self,
+        r: &MirrorRepo<'_>,
+        pins: &[(String, &str)],
+        pairs: &[(&str, &str)],
+    ) -> GitResult<Vec<Vec<FileDiff>>> {
         let path = self.path(r);
         let lock = self.lock(&path);
         let _guard = lock.lock().await;
@@ -54,19 +67,33 @@ impl Mirrors {
             init(&path, r).await?;
         }
         let git = Git::new(&path).with_token(r.token);
-        if !has_commits(&path, base, head).await {
-            git.run(["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--depth=1", "--filter=blob:none", "origin", head, base])
-                .await?;
-            git.run(["update-ref", &format!("refs/prism/pull/{number}/head"), head]).await?;
-            git.run(["update-ref", &format!("refs/prism/pull/{number}/base"), base]).await?;
+        let mut missing = Vec::new();
+        for (_, sha) in pins {
+            if !has_commit(&path, sha).await && !missing.contains(sha) {
+                missing.push(*sha);
+            }
         }
-        let out = git
-            .output([
-                "diff", "--no-ext-diff", "--no-textconv", "-M", "--src-prefix=a/", "--dst-prefix=b/", base, head,
-            ])
-            .await?;
-        Ok(diff::parse_git_diff(&String::from_utf8_lossy(&out)))
+        if !missing.is_empty() {
+            let mut args = vec!["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--depth=1", "--filter=blob:none", "origin"];
+            args.extend(&missing);
+            git.run(args).await?;
+            for (name, sha) in pins {
+                git.run(["update-ref", name, sha]).await?;
+            }
+        }
+        let mut out = Vec::with_capacity(pairs.len());
+        for (from, to) in pairs {
+            let text = git
+                .output(["diff", "--no-ext-diff", "--no-textconv", "-M", "--src-prefix=a/", "--dst-prefix=b/", from, to])
+                .await?;
+            out.push(diff::parse_git_diff(&String::from_utf8_lossy(&text)));
+        }
+        Ok(out)
     }
+}
+
+async fn has_commit(path: &Path, sha: &str) -> bool {
+    Git::new(path).offline().succeeds(["cat-file", "-e", &format!("{sha}^{{commit}}")]).await
 }
 
 async fn has_commits(path: &Path, base: &str, head: &str) -> bool {

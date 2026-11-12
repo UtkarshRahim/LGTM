@@ -12,6 +12,7 @@ use tauri_specta::Event;
 use crate::diffs::{DiffSource, FileHunks, FileMeta, PrDiff};
 use crate::error::AppResult;
 use crate::projects::{project_for, repos_by_host};
+use crate::review::{DiffScope, since_key};
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Serialize, specta::Type)]
@@ -211,7 +212,7 @@ fn spawn_refresh(app: AppHandle, gh: GitHub, pr: PrRef, cached_head: String) {
     });
 }
 
-fn key(pr: &PrRef) -> String {
+pub(crate) fn key(pr: &PrRef) -> String {
     format!("{}/{}/{}#{}", pr.host, pr.owner, pr.repo, pr.number)
 }
 
@@ -220,17 +221,46 @@ fn key(pr: &PrRef) -> String {
 #[tauri::command]
 #[specta::specta]
 pub async fn pr_sync_local(state: State<'_, AppState>, pr: PrRef) -> AppResult<Vec<FileMeta>> {
-    let (head, files) = local_diff(&state, &pr).await?;
-    Ok(state.diffs.insert(key(&pr), PrDiff::new(files).local(&head)).metas())
+    Ok(local(&state, &pr).await?.metas())
+}
+
+/// The PR's diff from the mirror at the cached head, computing it if needed.
+pub(crate) async fn local(state: &AppState, pr: &PrRef) -> AppResult<Arc<PrDiff>> {
+    if let Some(c) = state.db.cached_pr(&pr.host, &pr.owner, &pr.repo, pr.number)? {
+        if let Some(d) = state.diffs.get(&key(pr)).filter(|d| d.is_local_at(&c.head_sha)) {
+            return Ok(d);
+        }
+    }
+    let (head, files) = local_diff(state, pr).await?;
+    Ok(state.diffs.insert(key(pr), PrDiff::new(files).local(&head)))
+}
+
+pub(crate) fn cached_detail(state: &AppState, pr: &PrRef) -> AppResult<PrDetail> {
+    let c = state
+        .db
+        .cached_pr(&pr.host, &pr.owner, &pr.repo, pr.number)?
+        .ok_or_else(|| crate::error::AppError::invalid("Open the pull request first"))?;
+    Ok(serde_json::from_str(&c.detail_json)?)
 }
 
 /// Hunks (with syntax highlighting) for the given files of an opened PR.
 #[tauri::command]
 #[specta::specta]
-pub async fn pr_hunks(state: State<'_, AppState>, pr: PrRef, paths: Vec<String>) -> AppResult<Vec<FileHunks>> {
-    let diff: Arc<PrDiff> = match state.diffs.get(&key(&pr)) {
-        Some(d) => d,
-        None => {
+pub async fn pr_hunks(
+    state: State<'_, AppState>,
+    pr: PrRef,
+    scope: DiffScope,
+    paths: Vec<String>,
+) -> AppResult<Vec<FileHunks>> {
+    let diff: Arc<PrDiff> = match (scope, state.diffs.get(&key(&pr))) {
+        (DiffScope::Since, _) => match state.diffs.get(&since_key(&pr)) {
+            Some(d) => d,
+            None => crate::review::since(&state, &pr).await?.and_then(|_| state.diffs.get(&since_key(&pr))).ok_or_else(
+                || crate::error::AppError::invalid("You haven't reviewed this pull request yet"),
+            )?,
+        },
+        (DiffScope::All, Some(d)) => d,
+        (DiffScope::All, None) => {
             open(&state, &pr).await?;
             state.diffs.get(&key(&pr)).expect("open caches the diff")
         }

@@ -156,6 +156,17 @@ pub async fn merge_base(gh: &GitHub, pr: &PrRef, base_sha: &str, head_sha: &str)
     Ok(gh.rest_get::<Compare>(&path).await?.merge_base_commit.sha)
 }
 
+/// True if `old` is `new` or one of its ancestors, i.e. the branch wasn't rewritten.
+pub async fn is_ancestor(gh: &GitHub, pr: &PrRef, old: &str, new: &str) -> GhResult<bool> {
+    #[derive(Deserialize)]
+    struct Compare {
+        status: String,
+    }
+    let path = format!("/repos/{}/{}/compare/{old}...{new}?per_page=1", pr.owner, pr.repo);
+    let status = gh.rest_get::<Compare>(&path).await?.status;
+    Ok(status == "ahead" || status == "identical")
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ApiFile {
     pub filename: String,
@@ -448,11 +459,17 @@ mod live {
             let Some(gh) = client().await else { return };
             let n = needs_you(&gh).await.unwrap();
             println!("blocking {} rereview {}", n.blocking.len(), n.rereview.len());
+            if let Some(hit) = n.rereview.first() {
+                let last = crate::review::last_reviewed_commit(&gh, &hit.pr).await.unwrap();
+                println!("last reviewed {:?} on {}", last, hit.url);
+                assert!(last.is_some(), "re-review PRs have a reviewed commit");
+            }
             let open = open_in_repos(&gh, &[("cli".into(), "cli".into()), ("cli".into(), "go-gh".into())]).await.unwrap();
             assert!(!open.is_empty());
             assert!(open.iter().all(|p| p.pr.owner == "cli" && p.state == PrState::Open));
             let threads = crate::threads::review_threads(&gh, &pr("cli", "cli", 9000)).await.unwrap();
             println!("{} threads on cli/cli#9000", threads.len());
+            assert_eq!(crate::review::last_reviewed_commit(&gh, &pr("cli", "cli", 9000)).await.unwrap(), None);
         })
     }
 
