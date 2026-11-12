@@ -134,6 +134,13 @@
   display: flex;
 }
 
+.side {
+  position: relative;
+  flex: none;
+  display: flex;
+  min-height: 0;
+}
+
 .segmented {
   display: flex;
   border: 1px solid var(--border);

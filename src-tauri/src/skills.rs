@@ -129,6 +129,7 @@ pub struct Runs {
 
 struct Live {
     pr: String,
+    pr_ref: PrRef,
     cancel: watch::Sender<bool>,
     log: Vec<RunUpdate>,
     running: bool,
@@ -241,6 +242,68 @@ pub async fn skill_run_log(state: State<'_, AppState>, run_id: i32) -> AppResult
     Ok(state.runs.inner.lock().unwrap().get(&i64::from(run_id)).map(|l| l.log.clone()).unwrap_or_default())
 }
 
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct RunningReview {
+    pub run_id: i32,
+    pub pr: PrRef,
+}
+
+impl Runs {
+    pub fn running(&self) -> Vec<RunningReview> {
+        let runs = self.inner.lock().unwrap();
+        runs.iter()
+            .filter(|(_, l)| l.running)
+            .map(|(id, l)| RunningReview { run_id: *id as i32, pr: l.pr_ref.clone() })
+            .collect()
+    }
+
+    pub fn cancel_all(&self) {
+        for l in self.inner.lock().unwrap().values().filter(|l| l.running) {
+            let _ = l.cancel.send(true);
+        }
+    }
+}
+
+/// Auto reviews still running, so closing a tab or the app can ask first.
+#[tauri::command]
+#[specta::specta]
+pub async fn running_reviews(state: State<'_, AppState>) -> AppResult<Vec<RunningReview>> {
+    Ok(state.runs.running())
+}
+
+/// Asks before quitting while auto reviews run; quitting cancels them so
+/// their agents exit with the app.
+pub fn request_quit(app: &AppHandle) {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+    let n = app.state::<AppState>().runs.running().len();
+    if n == 0 {
+        app.exit(0);
+        return;
+    }
+    let app = app.clone();
+    let what = if n == 1 { "An auto review is".to_string() } else { format!("{n} auto reviews are") };
+    app.dialog()
+        .message(format!("{what} still running. Quitting stops it."))
+        .title("Quit Prism?")
+        .kind(MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::OkCancelCustom("Quit".into(), "Cancel".into()))
+        .show(move |quit| {
+            if !quit {
+                return;
+            }
+            app.state::<AppState>().runs.cancel_all();
+            tauri::async_runtime::spawn(async move {
+                for _ in 0..40 {
+                    if app.state::<AppState>().runs.running().is_empty() {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                app.exit(0);
+            });
+        });
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn cancel_skill_run(state: State<'_, AppState>, run_id: i32) -> AppResult<()> {
@@ -273,7 +336,7 @@ pub async fn run_skill(app: AppHandle, state: State<'_, AppState>, pr: PrRef, sk
     let pr_id = state.db.pr_id(&pr.host, &pr.owner, &pr.repo, pr.number)?.expect("cached_detail found it");
     let run_id = state.db.start_run(pr_id, &skill.id, &skill.name, &spec.id, &detail.head_sha)?;
     let (cancel, cancelled) = watch::channel(false);
-    state.runs.inner.lock().unwrap().insert(run_id, Live { pr: key, cancel, log: Vec::new(), running: true });
+    state.runs.inner.lock().unwrap().insert(run_id, Live { pr: key, pr_ref: pr.clone(), cancel, log: Vec::new(), running: true });
 
     let run = state.db.runs(pr_id)?.into_iter().find(|r| r.id == run_id).map(run_view).expect("just started");
     let job = Job { app: app.clone(), pr: pr.clone(), run_id, skill, spec, head: detail.head_sha.clone() };

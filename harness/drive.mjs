@@ -4,7 +4,8 @@
 //   eval:<js>      evaluate (awaiting promises) and print the result
 //   key:<key>      press a key, e.g. key:j
 //   shot:<path>    save a PNG screenshot
-//   drag:<sel>,<dy> drag the element matching <sel> vertically by dy px
+//   hover:<sel>    move the mouse over the element matching <sel>
+//   drag:<sel>,<dy>[,<dx>] drag the element matching <sel> by dy (and dx) px
 // Needs `pnpm dev` running. Example:
 //   node harness/drive.mjs open:fixture=huge wait:500 "eval:bench()" shot:/tmp/a.png
 import { spawn } from "node:child_process";
@@ -77,13 +78,18 @@ try {
       for (const type of ["keyDown", "keyUp"]) {
         await send("Input.dispatchKeyEvent", { type, key: arg, windowsVirtualKeyCode: code, text: type === "keyDown" ? text : undefined });
       }
+    } else if (cmd === "hover") {
+      const r = await evaluate(`(() => { const b = document.querySelector(${JSON.stringify(arg)}).getBoundingClientRect(); return [b.x + b.width / 2, b.y + b.height / 2]; })()`);
+      await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: r[0], y: r[1] });
     } else if (cmd === "drag") {
-      const [sel, dy] = arg.split(",");
+      const [sel, dy, dx = "0"] = arg.split(",");
       const r = await evaluate(`(() => { const b = document.querySelector(${JSON.stringify(sel)}).getBoundingClientRect(); return [b.x + b.width / 2, b.y + b.height / 2]; })()`);
       const [x, y] = r;
       await send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
-      for (let i = 1; i <= 10; i++) await send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y: y + (Number(dy) * i) / 10, button: "left" });
-      await send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y: y + Number(dy), button: "left", clickCount: 1 });
+      for (let i = 1; i <= 10; i++) {
+        await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: x + (Number(dx) * i) / 10, y: y + (Number(dy) * i) / 10, button: "left" });
+      }
+      await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: x + Number(dx), y: y + Number(dy), button: "left", clickCount: 1 });
     } else if (cmd === "shot") {
       const { data } = await send("Page.captureScreenshot", { format: "png" });
       writeFileSync(arg, Buffer.from(data, "base64"));

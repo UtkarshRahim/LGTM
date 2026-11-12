@@ -23,6 +23,7 @@ import {
   type SkillsView,
 } from "../ipc";
 import { SkillsPanel } from "../components/SkillsPanel";
+import { Resizer, useStoredSize } from "../components/Resizer";
 import { SkillPalette } from "../components/SkillPalette";
 import { currentFindings, findingDraft } from "../lib/findings";
 import type { ComposerValue } from "../components/Draft";
@@ -84,6 +85,7 @@ export function PrView({ pr, active, projects, layout, onLayout, onTitle, onSwit
   const [palette, setPalette] = useState(false);
   const [panel, setPanel] = useState(() => localStorage.getItem(PANEL_KEY) === "1");
   const [severities, setSeverities] = useState(savedSeverities);
+  const [filesWidth, setFilesWidth, resetFilesWidth] = useStoredSize("prism.filePanelWidth", 280);
   const diffRef = useRef<DiffViewHandle>(null);
   const started = useRef(0);
   const onTitleRef = useRef(onTitle);
@@ -380,7 +382,7 @@ export function PrView({ pr, active, projects, layout, onLayout, onTitle, onSwit
               onClick={() => showPanel(!panel)}
               title="Auto review (⌘R to run one)"
             >
-              Auto review{running ? " ·  running" : openCount > 0 ? ` · ${openCount}` : ""}
+              Auto review{running ? " · running" : openCount > 0 ? ` · ${openCount}` : ""}
             </button>
             {project && <CheckoutButton project={project} pr={pr} />}
             <ReviewSubmit pending={submittable} stale={local.drafts.length - submittable} onSubmit={onSubmit} />
@@ -473,12 +475,17 @@ export function PrView({ pr, active, projects, layout, onLayout, onTitle, onSwit
         {threadsError && <div className={styles.warn}>Couldn't load review threads: {threadsError}</div>}
       </header>
       <div className={styles.body}>
-        <FilePanel
-          files={files}
-          current={currentFile}
-          onPick={pick}
-          threadCounts={threadCounts}
-        />
+        <div className={styles.side} style={{ width: filesWidth }}>
+          <FilePanel files={files} current={currentFile} onPick={pick} threadCounts={threadCounts} />
+          <Resizer
+            edge="right"
+            size={filesWidth}
+            min={160}
+            max={() => window.innerWidth * 0.4}
+            onSize={setFilesWidth}
+            onReset={resetFilesWidth}
+          />
+        </div>
         <DiffView
           key={scope}
           ref={diffRef}

@@ -1,5 +1,5 @@
 .panel {
-  width: 280px;
+  width: 100%;
   flex: none;
   display: flex;
   flex-direction: column;

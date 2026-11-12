@@ -57,6 +57,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             skills::skill_run_log,
             skills::run_skill,
             skills::cancel_skill_run,
+            skills::running_reviews,
             skills::accept_finding,
             skills::dismiss_finding,
         ])
@@ -73,6 +74,30 @@ fn export_bindings(builder: &Builder<tauri::Wry>) {
         .expect("failed to export TypeScript bindings");
 }
 
+const QUIT_ID: &str = "quit";
+
+/// The default menu, with Quit routed through `request_quit` so it can ask
+/// before stopping running auto reviews.
+fn app_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{Menu, MenuItem, MenuItemKind};
+    let menu = Menu::default(app)?;
+    let quit = MenuItem::with_id(app, QUIT_ID, "Quit Prism", true, Some("CmdOrCtrl+Q"))?;
+    for item in menu.items()? {
+        let MenuItemKind::Submenu(sub) = item else { continue };
+        for (i, entry) in sub.items()?.into_iter().enumerate() {
+            if let MenuItemKind::Predefined(p) = &entry
+                && p.text()?.starts_with("Quit")
+            {
+                sub.remove_at(i)?;
+                sub.insert(&quit, i)?;
+                return Ok(menu);
+            }
+        }
+    }
+    tracing::warn!("no Quit item in the default menu; quitting won't ask about running reviews");
+    Ok(menu)
+}
+
 pub fn run() {
     let builder = specta_builder();
     #[cfg(debug_assertions)]
@@ -82,6 +107,20 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(builder.invoke_handler())
+        .menu(app_menu)
+        .on_menu_event(|app, e| {
+            if e.id() == QUIT_ID {
+                skills::request_quit(app);
+            }
+        })
+        .on_window_event(|window, e| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = e
+                && !window.state::<AppState>().runs.running().is_empty()
+            {
+                api.prevent_close();
+                skills::request_quit(window.app_handle());
+            }
+        })
         .setup(move |app| {
             builder.mount_events(app);
             let paths = app.path();

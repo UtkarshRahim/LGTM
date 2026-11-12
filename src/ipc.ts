@@ -35,6 +35,7 @@ export type {
   ReviewEvent,
   ReviewThread_Serialize as ReviewThread,
   RunStatus,
+  RunningReview,
   RunUpdate_Serialize as RunUpdate,
   RunView_Serialize as Run,
   Settings_Serialize as Settings,

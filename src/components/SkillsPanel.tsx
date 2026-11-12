@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Finding, Run, RunUpdate, Severity } from "../ipc";
 import { SEVERITIES, lineLabel } from "../lib/findings";
+import { Resizer, useStoredSize } from "./Resizer";
 import styles from "./SkillsPanel.module.css";
 
 interface Props {
@@ -71,6 +72,8 @@ export function SkillsPanel(props: Props) {
   const { runs, headSha, findings, stale, staleRuns, log, severities, onSeverities, pinnedName } = props;
   const { onOpenPalette, onRerun, onCancel, onFocus, onRestore, onClose } = props;
   const [logOpen, setLogOpen] = useState<boolean | null>(null);
+  const [width, setWidth, resetWidth] = useStoredSize("prism.reviewPanelWidth", 320);
+  const [logHeight, setLogHeight, resetLogHeight] = useStoredSize("prism.reviewLogHeight", 220);
   const [showDismissed, setShowDismissed] = useState(false);
 
   const latest = runs[0] ?? null;
@@ -95,7 +98,15 @@ export function SkillsPanel(props: Props) {
   }, [shown]);
 
   return (
-    <aside className={styles.panel}>
+    <aside className={styles.panel} style={{ width }}>
+      <Resizer
+        edge="left"
+        size={width}
+        min={240}
+        max={() => window.innerWidth * 0.5}
+        onSize={setWidth}
+        onReset={resetWidth}
+      />
       <div className={styles.head}>
         <span className={styles.heading}>Auto review</span>
         <span className={styles.spacer} />
@@ -145,12 +156,22 @@ export function SkillsPanel(props: Props) {
                   {showLog ? "▾" : "▸"} Activity ({entries.length})
                 </button>
                 {showLog && (
-                  <div ref={logRef} className={styles.log}>
-                    {entries.map((e) => (
-                      <div key={e.key} className={styles.entry} data-kind={e.kind} data-status={e.status ?? undefined}>
-                        {e.text}
-                      </div>
-                    ))}
+                  <div className={styles.logWrap}>
+                    <div ref={logRef} className={styles.log} style={{ maxHeight: logHeight }}>
+                      {entries.map((e) => (
+                        <div key={e.key} className={styles.entry} data-kind={e.kind} data-status={e.status ?? undefined}>
+                          {e.text}
+                        </div>
+                      ))}
+                    </div>
+                    <Resizer
+                      edge="bottom"
+                      size={logHeight}
+                      min={60}
+                      max={() => window.innerHeight * 0.7}
+                      onSize={setLogHeight}
+                      onReset={resetLogHeight}
+                    />
                   </div>
                 )}
               </>

@@ -1,4 +1,6 @@
 .sidebar {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   background: var(--surface);
@@ -130,32 +132,37 @@
   font-size: var(--text-sm);
 }
 
-.tabKbd,
-.close {
+.tabKbd {
   position: absolute;
   right: 6px;
   top: 7px;
 }
 
 .close {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
   display: none;
+  place-items: center;
+  width: 18px;
+  height: 18px;
   border: 0;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 15px;
-  line-height: 1;
-  padding: 0 3px;
   border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
 }
 
 .close:hover {
-  color: var(--text);
-  background: #262b33;
+  background: #2c323b;
 }
 
 .tab:hover .close {
-  display: block;
+  display: grid;
 }
 
 .tab:hover .tabKbd {

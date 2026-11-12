@@ -60,6 +60,8 @@ export const commands = {
 	skillRunLog: (runId: number) => typedError<RunUpdate_Serialize[], AppError_Serialize>(__TAURI_INVOKE("skill_run_log", { runId })),
 	runSkill: (pr: PrRef, skillId: string) => typedError<RunView_Serialize, AppError_Serialize>(__TAURI_INVOKE("run_skill", { pr, skillId })),
 	cancelSkillRun: (runId: number) => typedError<null, AppError_Serialize>(__TAURI_INVOKE("cancel_skill_run", { runId })),
+	/**  Auto reviews still running, so closing a tab or the app can ask first. */
+	runningReviews: () => typedError<RunningReview[], AppError_Serialize>(__TAURI_INVOKE("running_reviews")),
 	/**  Turns a finding into a draft comment, with the body as you edited it. */
 	acceptFinding: (pr: PrRef, findingId: number, headSha: string, target: DraftTarget_Deserialize, body: string, label: CommentLabel | null) => typedError<Draft_Serialize, AppError_Serialize>(__TAURI_INVOKE("accept_finding", { pr, findingId, headSha, target, body, label })),
 	/**  Dismisses a finding with a reason, or reopens it with `None`. */
@@ -710,6 +712,11 @@ export type RunView_Serialize = {
 	error: string | null,
 	started_at: number,
 	ended_at: number | null,
+};
+
+export type RunningReview = {
+	run_id: number,
+	pr: PrRef,
 };
 
 export type SearchOutcome = SearchOutcome_Serialize | SearchOutcome_Deserialize;

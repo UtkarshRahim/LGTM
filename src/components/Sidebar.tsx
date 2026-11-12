@@ -87,7 +87,12 @@ export function Sidebar(p: Props) {
         {p.tabs.map((t, i) => {
           const key = prKey(t.pr);
           return (
-            <div key={key} className={styles.tab} data-active={p.active === key}>
+            <div
+              key={key}
+              className={styles.tab}
+              data-active={p.active === key}
+              onAuxClick={(e) => e.button === 1 && p.onClose(key)}
+            >
               <button className={styles.tabMain} onClick={() => p.onSelect(key)} title={t.title}>
                 <span className={styles.tabRef}>
                   {t.pr.repo}
@@ -96,7 +101,7 @@ export function Sidebar(p: Props) {
                 <span className={`${styles.tabTitle} truncate`}>{t.title ?? "Loading…"}</span>
               </button>
               {i < 8 && <kbd className={styles.tabKbd}>⌘{i + 2}</kbd>}
-              <button className={styles.close} onClick={() => p.onClose(key)} aria-label="Close tab">
+              <button className={styles.close} onClick={() => p.onClose(key)} aria-label="Close tab" title="Close (⌘W)">
                 ×
               </button>
             </div>

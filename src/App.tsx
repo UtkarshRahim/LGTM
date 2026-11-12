@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { ask, open as openDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { commands, events, prKey, type Accounts, type PrRef, type Project, type Settings } from "./ipc";
 import { errorText } from "./lib/errors";
 import { Sidebar, type Tab } from "./components/Sidebar";
 import { Home } from "./views/Home";
 import { PrView } from "./views/PrView";
+import { Resizer, useStoredSize } from "./components/Resizer";
 import styles from "./App.module.css";
 
 const ZOOM_KEY = "prism.zoom";
@@ -23,6 +24,7 @@ export function App() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [selectedProject, setSelectedProject] = useState<number | null>(null);
+  const [sidebarWidth, setSidebarWidth, resetSidebarWidth] = useStoredSize("prism.sidebarWidth", 252);
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
   const activeRef = useRef(active);
@@ -54,7 +56,19 @@ export function App() {
     setActive(key);
   }, []);
 
-  const closeTab = useCallback((key: string) => {
+  const closeTab = useCallback(async (key: string) => {
+    const running = await commands.runningReviews();
+    const runs = running.status === "ok" ? running.data.filter((r) => prKey(r.pr) === key) : [];
+    if (runs.length) {
+      const ok = await ask("An auto review is still running on this pull request. Closing the tab stops it.", {
+        title: "Close this review?",
+        kind: "warning",
+        okLabel: "Close and stop",
+        cancelLabel: "Keep open",
+      });
+      if (!ok) return;
+      for (const r of runs) commands.cancelSkillRun(r.run_id);
+    }
     const ts = tabsRef.current;
     const i = ts.findIndex((t) => prKey(t.pr) === key);
     const next = ts.filter((t) => prKey(t.pr) !== key);
@@ -208,37 +222,47 @@ export function App() {
   };
 
   return (
-    <div className={styles.shell}>
-      <Sidebar
-        tabs={tabs}
-        active={active}
-        onSelect={setActive}
-        onClose={closeTab}
-        projects={projects}
-        prCounts={prCounts}
-        selectedProject={active === "home" ? selectedProject : null}
-        onSelectProject={(id) => {
-          setSelectedProject((cur) => (cur === id && activeRef.current === "home" ? null : id));
-          setActive("home");
-        }}
-        onAddProject={pickFolder}
-        onRemoveProject={async (id) => {
-          if (selectedProject === id) setSelectedProject(null);
-          await commands.removeProject(id);
-          loadProjects();
-        }}
-        accounts={accounts}
-        onPickAccount={async (key) => {
-          const r = await commands.setDefaultAccount(key);
-          if (r.status === "ok") afterAccountChange(r.data);
-        }}
-        onRefreshAccounts={async () => {
-          const r = await commands.refreshAccounts();
-          if (r.status === "ok") afterAccountChange(r.data);
-        }}
-        accountMenuOpen={accountMenuOpen}
-        setAccountMenuOpen={setAccountMenuOpen}
-      />
+    <div className={styles.shell} style={{ gridTemplateColumns: `${sidebarWidth}px minmax(0, 1fr)` }}>
+      <div className={styles.side}>
+        <Sidebar
+          tabs={tabs}
+          active={active}
+          onSelect={setActive}
+          onClose={closeTab}
+          projects={projects}
+          prCounts={prCounts}
+          selectedProject={active === "home" ? selectedProject : null}
+          onSelectProject={(id) => {
+            setSelectedProject((cur) => (cur === id && activeRef.current === "home" ? null : id));
+            setActive("home");
+          }}
+          onAddProject={pickFolder}
+          onRemoveProject={async (id) => {
+            if (selectedProject === id) setSelectedProject(null);
+            await commands.removeProject(id);
+            loadProjects();
+          }}
+          accounts={accounts}
+          onPickAccount={async (key) => {
+            const r = await commands.setDefaultAccount(key);
+            if (r.status === "ok") afterAccountChange(r.data);
+          }}
+          onRefreshAccounts={async () => {
+            const r = await commands.refreshAccounts();
+            if (r.status === "ok") afterAccountChange(r.data);
+          }}
+          accountMenuOpen={accountMenuOpen}
+          setAccountMenuOpen={setAccountMenuOpen}
+        />
+        <Resizer
+          edge="right"
+          size={sidebarWidth}
+          min={180}
+          max={() => Math.min(480, window.innerWidth / 3)}
+          onSize={setSidebarWidth}
+          onReset={resetSidebarWidth}
+        />
+      </div>
       <main className={styles.main}>
         <div className={styles.topbar} data-tauri-drag-region />
         <div className={styles.view} hidden={active !== "home"}>

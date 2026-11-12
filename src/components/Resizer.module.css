@@ -1,0 +1,67 @@
+.handle {
+  position: absolute;
+  z-index: 5;
+}
+
+.handle[data-edge="left"],
+.handle[data-edge="right"] {
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  cursor: col-resize;
+}
+
+.handle[data-edge="left"] {
+  left: -4px;
+}
+
+.handle[data-edge="right"] {
+  right: -4px;
+}
+
+.handle[data-edge="bottom"] {
+  left: 0;
+  right: 0;
+  bottom: -4px;
+  height: 7px;
+  cursor: row-resize;
+}
+
+.handle::after {
+  content: "";
+  position: absolute;
+  background: transparent;
+  transition: background 0.1s;
+}
+
+.handle[data-edge="left"]::after,
+.handle[data-edge="right"]::after {
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+}
+
+.handle[data-edge="bottom"]::after {
+  left: 0;
+  right: 0;
+  top: 3px;
+  height: 2px;
+}
+
+.handle:hover::after,
+.handle:active::after {
+  background: var(--accent);
+}
+
+:global(body[data-resizing="x"]) {
+  cursor: col-resize;
+}
+
+:global(body[data-resizing="y"]) {
+  cursor: row-resize;
+}
+
+:global(body[data-resizing]) *:not(.handle) {
+  pointer-events: none;
+}
