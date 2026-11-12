@@ -1,6 +1,7 @@
 import { useRef, useState, type PointerEvent } from "react";
 import type { Accounts, PrRef, Project } from "../ipc";
 import { prKey } from "../ipc";
+import logo from "../assets/logo.png";
 import styles from "./Sidebar.module.css";
 
 export interface Tab {
@@ -71,7 +72,9 @@ export function Sidebar(p: Props) {
 
   return (
     <nav ref={navRef} className={styles.sidebar}>
-      <div className={styles.drag} data-tauri-drag-region />
+      <div className={styles.drag} data-tauri-drag-region>
+        <img className={styles.logo} src={logo} alt="LGTM" draggable={false} data-tauri-drag-region />
+      </div>
       <button className={styles.row} data-active={p.active === "home"} onClick={() => p.onSelect("home")}>
         <span className={styles.icon}>⌂</span>
         <span className={styles.grow}>Home</span>

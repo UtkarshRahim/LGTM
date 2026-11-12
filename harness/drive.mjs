@@ -4,6 +4,7 @@
 //   eval:<js>      evaluate (awaiting promises) and print the result
 //   key:<key>      press a key, e.g. key:j
 //   shot:<path>    save a PNG screenshot
+//   png:<sel>,<path> save the element matching <sel> as a PNG with a transparent background
 //   hover:<sel>    move the mouse over the element matching <sel>
 //   drag:<sel>,<dy>[,<dx>] drag the element matching <sel> by dy (and dx) px
 // Needs `pnpm dev` running. Example:
@@ -90,6 +91,14 @@ try {
         await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: x + (Number(dx) * i) / 10, y: y + (Number(dy) * i) / 10, button: "left" });
       }
       await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: x + Number(dx), y: y + Number(dy), button: "left", clickCount: 1 });
+    } else if (cmd === "png") {
+      const [sel, path] = arg.split(",");
+      const b = await evaluate(`(() => { const r = document.querySelector(${JSON.stringify(sel)}).getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; })()`);
+      await send("Emulation.setDefaultBackgroundColorOverride", { color: { r: 0, g: 0, b: 0, a: 0 } });
+      const clip = { x: b[0], y: b[1], width: b[2], height: b[3], scale: 1 };
+      const { data } = await send("Page.captureScreenshot", { format: "png", clip, captureBeyondViewport: true });
+      writeFileSync(path, Buffer.from(data, "base64"));
+      console.log(`saved ${path}`);
     } else if (cmd === "shot") {
       const { data } = await send("Page.captureScreenshot", { format: "png" });
       writeFileSync(arg, Buffer.from(data, "base64"));

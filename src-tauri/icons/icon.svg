@@ -1,5 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
-  <rect width="1024" height="1024" rx="224" fill="#0f1115"/>
-  <path d="M512 210 L800 760 H224 Z" fill="none" stroke="#6aa8ff" stroke-width="56" stroke-linejoin="round"/>
-  <path d="M512 210 L560 760" stroke="#6aa8ff" stroke-opacity="0.55" stroke-width="40"/>
+<!-- Source of app-icon.png (rendered by harness/logo.html with Space Grotesk 700). -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-10 -10 120 120">
+  <circle cx="50" cy="50" r="46" fill="#0f1115" stroke="#56d364" stroke-width="4"/>
+  <text x="50" y="50" text-anchor="middle" dominant-baseline="central" fill="#e6edf3"
+    font-family="Space Grotesk" font-weight="700" font-size="27" letter-spacing="-0.5">LGTM</text>
 </svg>

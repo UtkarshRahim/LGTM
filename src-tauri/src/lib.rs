@@ -9,6 +9,7 @@ mod skills;
 mod state;
 
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, RwLock};
 
 use prism_repo::Mirrors;
@@ -76,6 +77,39 @@ fn export_bindings(builder: &Builder<tauri::Wry>) {
 
 const QUIT_ID: &str = "quit";
 
+/// The bundle id the app had before it was renamed to LGTM.
+const OLD_BUNDLE_ID: &str = "com.utkarshrahim.prism";
+
+/// Copies the database and settings from the pre-rename data folder on first
+/// launch. Mirrors and checkouts aren't copied (git worktrees record absolute
+/// paths); they're fetched again.
+fn carry_over_from_prism(db_path: &Path, settings_path: &Path) -> std::io::Result<()> {
+    let old = |p: &Path| -> Option<PathBuf> {
+        let dir = p.parent()?;
+        Some(dir.with_file_name(OLD_BUNDLE_ID).join(p.file_name()?))
+    };
+    let copy = |from: PathBuf, to: &Path| -> std::io::Result<()> {
+        if from.exists() && !to.exists() {
+            std::fs::create_dir_all(to.parent().expect("app paths have a parent"))?;
+            std::fs::copy(&from, to)?;
+            tracing::info!(from = %from.display(), to = %to.display(), "carried over from Prism");
+        }
+        Ok(())
+    };
+    if let Some(old_db) = old(db_path)
+        && !db_path.exists()
+    {
+        for suffix in ["", "-wal", "-shm"] {
+            let name = |p: &Path| PathBuf::from(format!("{}{suffix}", p.display()));
+            copy(name(&old_db), &name(db_path))?;
+        }
+    }
+    if let Some(old_settings) = old(settings_path) {
+        copy(old_settings, settings_path)?;
+    }
+    Ok(())
+}
+
 /// The default menu, with Quit routed through `request_quit` so it can ask
 /// before stopping running auto reviews.
 fn app_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
@@ -128,6 +162,7 @@ pub fn run() {
             let data_dir = paths.app_data_dir()?;
             let db_path = data_dir.join("prism.db");
             let settings_path = paths.app_config_dir()?.join("settings.toml");
+            carry_over_from_prism(&db_path, &settings_path)?;
             let db = Db::open(&db_path)?;
             db.fail_unfinished_runs()?;
             let settings = Settings::load_or_init(&settings_path)?;

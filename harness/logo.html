@@ -77,7 +77,9 @@
       if (only) {
         document.body.classList.add("only");
         const size = params.get("size") ?? "1024";
-        grid.innerHTML = svg(drafts.find((d) => d.id === only)).replace("<svg ", `<svg width="${size}" height="${size}" `);
+        grid.innerHTML = svg(drafts.find((d) => d.id === only))
+          .replace('viewBox="0 0 100 100"', `viewBox="${params.get("pad") ?? "-10 -10 120 120"}"`)
+          .replace("<svg ", `<svg width="${size}" height="${size}" `);
       } else {
         grid.innerHTML = drafts
           .map((d) => `<div class="tile">${svg(d)}<div class="small">${svg(d)}${svg(d)}</div><div>${d.id} · ${d.name}</div></div>`)
