@@ -473,6 +473,84 @@ mod live {
         })
     }
 
+    /// Posts real reviews. Point it at a throwaway PR you own:
+    /// `PRISM_LIVE_TESTS=1 PRISM_REVIEW_PR=owner/repo#1 cargo test -p prism-gh posts_reviews -- --nocapture`
+    #[test]
+    fn posts_reviews() {
+        use crate::review::{NewComment, Reply, ReviewEvent, last_reviewed_commit, set_thread_resolved, submit_review};
+        use crate::threads::{DiffSide, review_threads};
+        RT.block_on(async {
+            let Ok(spec) = std::env::var("PRISM_REVIEW_PR") else { return };
+            let Some(gh) = client().await else { return };
+            let crate::SearchQuery::Pr { pr } = crate::query::parse(&spec) else { panic!("bad PRISM_REVIEW_PR") };
+            let head = pull_request(&gh, &pr).await.unwrap().head_sha;
+            let file = "REVIEW_TEST.md";
+            let c = |line, start_line: Option<u32>, body: &str| NewComment {
+                path: file.into(),
+                line,
+                side: DiffSide::Right,
+                start_line,
+                start_side: None,
+                body: body.into(),
+            };
+            let old: std::collections::HashSet<String> =
+                review_threads(&gh, &pr).await.unwrap().into_iter().map(|t| t.id).collect();
+            let before = old.len();
+
+            let url = submit_review(&gh, &pr, &head, ReviewEvent::Comment, "Prism test: single mutation", &[
+                c(3, None, "**nit:** single line"),
+                c(6, Some(4), "range 4–6"),
+            ], &[])
+            .await
+            .unwrap();
+            println!("posted {url}");
+            let threads = review_threads(&gh, &pr).await.unwrap();
+            assert_eq!(threads.len(), before + 2);
+            let threads: Vec<_> = threads.into_iter().filter(|t| !old.contains(&t.id)).collect();
+            let range = threads.iter().find(|t| t.comments[0].body_html.contains("range")).unwrap();
+            assert_eq!((range.start_line, range.line), (Some(4), Some(6)));
+            let single = threads.iter().find(|t| t.comments[0].body_html.contains("single line")).unwrap().clone();
+            assert!(single.can_reply && single.can_resolve);
+
+            let url = submit_review(&gh, &pr, &head, ReviewEvent::Comment, "", &[c(5, None, "new comment with a reply")], &[
+                Reply { thread_id: single.id.clone(), body: "queued reply".into() },
+            ])
+            .await
+            .unwrap();
+            println!("posted {url}");
+            let threads = review_threads(&gh, &pr).await.unwrap();
+            assert_eq!(threads.len(), before + 3);
+            let single = threads.iter().find(|t| t.id == single.id).unwrap();
+            assert_eq!(single.comments.len(), 2);
+            assert!(single.comments[1].body_html.contains("queued reply"));
+
+            set_thread_resolved(&gh, &pr, &single.id, true).await.unwrap();
+            let resolved = review_threads(&gh, &pr).await.unwrap().into_iter().find(|t| t.id == single.id).unwrap();
+            assert!(resolved.resolved);
+            set_thread_resolved(&gh, &pr, &single.id, false).await.unwrap();
+            assert_eq!(last_reviewed_commit(&gh, &pr).await.unwrap().as_deref(), Some(head.as_str()));
+
+            let bad = Reply { thread_id: "PRRT_does_not_exist".into(), body: "x".into() };
+            let err = submit_review(&gh, &pr, &head, ReviewEvent::Comment, "", &[c(4, None, "must not land")], &[bad]).await;
+            assert!(err.is_err());
+            let q = "query($o: String!, $r: String!, $n: Int!) { repository(owner: $o, name: $r) { pullRequest(number: $n) {
+              reviews(states: [PENDING], first: 5) { totalCount } } } }";
+            let v: serde_json::Value =
+                gh.graphql(q, serde_json::json!({ "o": pr.owner, "r": pr.repo, "n": pr.number }), "pending").await.unwrap();
+            assert_eq!(v["repository"]["pullRequest"]["reviews"]["totalCount"], 0, "failed submit left a pending review");
+            // Threads of a just-deleted pending review linger briefly.
+            let mut left = 0;
+            for _ in 0..10 {
+                left = review_threads(&gh, &pr).await.unwrap().len();
+                if left == before + 3 {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+            assert_eq!(left, before + 3, "nothing from the failed submit was posted");
+        })
+    }
+
     #[test]
     fn text_search() {
         RT.block_on(async {
