@@ -1,3 +1,4 @@
+import { useRef, useState, type PointerEvent } from "react";
 import type { Accounts, PrRef, Project } from "../ipc";
 import { prKey } from "../ipc";
 import styles from "./Sidebar.module.css";
@@ -26,9 +27,50 @@ interface Props {
   setAccountMenuOpen: (open: boolean) => void;
 }
 
+const TABS_HEIGHT_KEY = "prism.sidebar.tabsHeight";
+const MIN_SECTION = 48;
+
 export function Sidebar(p: Props) {
+  const navRef = useRef<HTMLElement>(null);
+  const tabsRef = useRef<HTMLDivElement>(null);
+  // `null` means "fit the content" (capped by CSS); dragging the divider pins a height.
+  const [tabsHeight, setTabsHeight] = useState<number | null>(() => {
+    const v = Number(localStorage.getItem(TABS_HEIGHT_KEY));
+    return v > 0 ? v : null;
+  });
+
+  const startResize = (e: PointerEvent<HTMLDivElement>) => {
+    const tabs = tabsRef.current;
+    const nav = navRef.current;
+    if (!tabs || !nav) return;
+    e.preventDefault();
+    const handle = e.currentTarget;
+    handle.setPointerCapture(e.pointerId);
+    const startY = e.clientY;
+    const startH = tabs.getBoundingClientRect().height;
+    // Leave room for the Projects header, a few projects and the account footer.
+    const maxH = nav.getBoundingClientRect().bottom - tabs.getBoundingClientRect().top - 180;
+    let h = startH;
+    const move = (ev: globalThis.PointerEvent) => {
+      h = Math.round(Math.max(MIN_SECTION, Math.min(maxH, startH + ev.clientY - startY)));
+      setTabsHeight(h);
+    };
+    const up = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", up);
+      localStorage.setItem(TABS_HEIGHT_KEY, String(h));
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up);
+  };
+
+  const resetResize = () => {
+    setTabsHeight(null);
+    localStorage.removeItem(TABS_HEIGHT_KEY);
+  };
+
   return (
-    <nav className={styles.sidebar}>
+    <nav ref={navRef} className={styles.sidebar}>
       <div className={styles.drag} data-tauri-drag-region />
       <button className={styles.row} data-active={p.active === "home"} onClick={() => p.onSelect("home")}>
         <span className={styles.icon}>⌂</span>
@@ -37,7 +79,11 @@ export function Sidebar(p: Props) {
       </button>
 
       {p.tabs.length > 0 && <div className={styles.section}>Open reviews</div>}
-      <div className={styles.tabs}>
+      <div
+        ref={tabsRef}
+        className={styles.tabs}
+        style={tabsHeight != null && p.tabs.length > 0 ? { height: tabsHeight, maxHeight: "none" } : undefined}
+      >
         {p.tabs.map((t, i) => {
           const key = prKey(t.pr);
           return (
@@ -57,6 +103,17 @@ export function Sidebar(p: Props) {
           );
         })}
       </div>
+
+      {p.tabs.length > 0 && (
+        <div
+          className={styles.splitter}
+          onPointerDown={startResize}
+          onDoubleClick={resetResize}
+          title="Drag to resize, double-click to reset"
+          role="separator"
+          aria-orientation="horizontal"
+        />
+      )}
 
       <div className={styles.section}>
         <span className={styles.grow}>Projects</span>

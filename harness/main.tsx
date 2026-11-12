@@ -9,6 +9,7 @@ import "../src/styles/global.css";
 import type { DiffLayout, FileHunks, FilePanel, PrRef, PrView as View, ReviewThread } from "../src/ipc";
 import { PrView } from "../src/views/PrView";
 import { Home } from "../src/views/Home";
+import { Sidebar } from "../src/components/Sidebar";
 
 interface Fixture {
   pr: PrRef;
@@ -64,6 +65,31 @@ mockIPC(
 function Harness() {
   const [layout, setLayout] = useState<DiffLayout>((params.get("layout") as DiffLayout) ?? "unified");
   const [panel, setPanel] = useState<FilePanel>((params.get("panel") as FilePanel) ?? "review_order");
+  if (params.get("view") === "sidebar") {
+    const tabs = [1, 2, 3, 4, 5, 6].map((n) => ({ pr: { ...fx.pr, number: n }, title: `Review ${n}` }));
+    const projects = ["prism", "cli", "tauri"].map((name, id) => ({ id, path: `/tmp/${name}`, name, remotes: [], status: null }));
+    return (
+      <div style={{ height: "100vh", width: 260, display: "flex" }}>
+        <Sidebar
+          tabs={tabs}
+          active="home"
+          onSelect={() => {}}
+          onClose={() => {}}
+          projects={projects}
+          prCounts={{}}
+          selectedProject={null}
+          onSelectProject={() => {}}
+          onAddProject={() => {}}
+          onRemoveProject={() => {}}
+          accounts={null}
+          onPickAccount={() => {}}
+          onRefreshAccounts={() => {}}
+          accountMenuOpen={false}
+          setAccountMenuOpen={() => {}}
+        />
+      </div>
+    );
+  }
   if (params.get("view") === "home") {
     return (
       <div style={{ height: "100vh" }}>

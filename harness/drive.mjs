@@ -4,6 +4,7 @@
 //   eval:<js>      evaluate (awaiting promises) and print the result
 //   key:<key>      press a key, e.g. key:j
 //   shot:<path>    save a PNG screenshot
+//   drag:<sel>,<dy> drag the element matching <sel> vertically by dy px
 // Needs `pnpm dev` running. Example:
 //   node harness/drive.mjs open:fixture=huge wait:500 "eval:bench()" shot:/tmp/a.png
 import { spawn } from "node:child_process";
@@ -72,6 +73,13 @@ try {
     else if (cmd === "eval") console.log(`${arg} →`, JSON.stringify(await evaluate(arg)));
     else if (cmd === "key") {
       for (const type of ["keyDown", "keyUp"]) await send("Input.dispatchKeyEvent", { type, key: arg, text: type === "keyDown" ? arg : undefined });
+    } else if (cmd === "drag") {
+      const [sel, dy] = arg.split(",");
+      const r = await evaluate(`(() => { const b = document.querySelector(${JSON.stringify(sel)}).getBoundingClientRect(); return [b.x + b.width / 2, b.y + b.height / 2]; })()`);
+      const [x, y] = r;
+      await send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
+      for (let i = 1; i <= 10; i++) await send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y: y + (Number(dy) * i) / 10, button: "left" });
+      await send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y: y + Number(dy), button: "left", clickCount: 1 });
     } else if (cmd === "shot") {
       const { data } = await send("Page.captureScreenshot", { format: "png" });
       writeFileSync(arg, Buffer.from(data, "base64"));
