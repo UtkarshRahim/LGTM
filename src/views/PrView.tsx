@@ -124,38 +124,40 @@ export function PrView({ pr, active, projects, layout, onLayout, onTitle, onSwit
             {project && <CheckoutButton project={project} pr={pr} />}
           </div>
         </div>
-        <div className={styles.meta}>
-          <span className={styles.state} data-state={d.summary.is_draft ? "DRAFT" : d.summary.state}>
-            {d.summary.is_draft ? "Draft" : d.summary.state.toLowerCase()}
-          </span>
-          <span>{d.summary.author ?? "ghost"}</span>
-          <span className="mono">
-            {d.head_repo && d.head_repo !== `${pr.owner}/${pr.repo}` ? `${d.head_repo.split("/")[0]}:` : ""}
-            {d.head_ref} → {d.base_ref}
-          </span>
-          <span>
-            {d.changed_files} files <span className={styles.add}>+{d.additions}</span>{" "}
-            <span className={styles.del}>−{d.deletions}</span>
-          </span>
-          {threads.length > 0 && (
-            <span>
-              {threads.length} threads{unresolved > 0 && `, ${unresolved} unresolved`}
+        <div className={styles.metaRow}>
+          <div className={styles.meta}>
+            <span className={styles.state} data-state={d.summary.is_draft ? "DRAFT" : d.summary.state}>
+              {d.summary.is_draft ? "Draft" : d.summary.state.toLowerCase()}
             </span>
-          )}
-          {project && <span className={styles.local}>in project {project.name}</span>}
-          <span className={styles.timing} title="Time to first diff render">
-            {view.source === "api" ? "GitHub patches" : "local"}
-            {openMs !== null && ` · ${openMs} ms`}
-            {localState === "loading" && " · syncing mirror…"}
-          </span>
-          <div className={styles.segmented} title="Toggle layout (s)">
-            <button data-on={layout === "unified"} onClick={() => onLayout("unified")}>
-              Unified
-            </button>
-            <button data-on={layout === "split"} onClick={() => onLayout("split")}>
-              Split
-            </button>
+            <span>{d.summary.author ?? "ghost"}</span>
+            <span className="mono">
+              {d.head_repo && d.head_repo !== `${pr.owner}/${pr.repo}` ? `${d.head_repo.split("/")[0]}:` : ""}
+              {d.head_ref} → {d.base_ref}
+            </span>
+            <span>
+              {d.changed_files} files <span className={styles.add}>+{d.additions}</span>{" "}
+              <span className={styles.del}>−{d.deletions}</span>
+            </span>
+            {threads.length > 0 && (
+              <span>
+                {threads.length} threads{unresolved > 0 && `, ${unresolved} unresolved`}
+              </span>
+            )}
+            {project && <span className={styles.local}>in project {project.name}</span>}
+            <span className={styles.timing} title="Time to first diff render">
+              {view.source === "api" ? "GitHub patches" : "local"}
+              {openMs !== null && ` · ${openMs} ms`}
+              {localState === "loading" && " · syncing mirror…"}
+            </span>
           </div>
+            <div className={styles.segmented} title="Toggle layout (s)">
+              <button data-on={layout === "unified"} onClick={() => onLayout("unified")}>
+                Unified
+              </button>
+              <button data-on={layout === "split"} onClick={() => onLayout("split")}>
+                Split
+              </button>
+            </div>
         </div>
         {updated && (
           <div className={styles.banner}>

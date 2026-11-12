@@ -40,7 +40,20 @@
   align-items: center;
 }
 
+.metaRow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.metaRow .segmented {
+  flex: none;
+  margin-left: auto;
+}
+
 .meta {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
