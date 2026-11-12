@@ -235,7 +235,7 @@ export type Draft_Serialize = {
 };
 
 export type EnvSource = 
-/**  No capture available yet; children inherit Prism's own environment. */
+/**  No capture available yet; children inherit LGTM's own environment. */
 "inherited" | "cache" | "fresh";
 
 /**  Something the agent did, streamed while a prompt runs. */
@@ -245,14 +245,14 @@ export type Event = Event_Serialize | Event_Deserialize;
 export type Event_Deserialize = { kind: "message"; text: string } | { kind: "thought"; text: string } | 
 /**  A tool call started or changed; fields are `None` when unchanged. */
 { kind: "tool"; id: string; title?: string | null; tool?: string | null; status?: string | null } | 
-/**  Prism refused a tool call the read-only policy doesn't allow. */
+/**  LGTM refused a tool call the read-only policy doesn't allow. */
 { kind: "denied"; title: string; tool: string } | { kind: "plan"; entries: string[] };
 
 /**  Something the agent did, streamed while a prompt runs. */
 export type Event_Serialize = { kind: "message"; text: string } | { kind: "thought"; text: string } | 
 /**  A tool call started or changed; fields are `None` when unchanged. */
 { kind: "tool"; id: string; title: string | null; tool: string | null; status: string | null } | 
-/**  Prism refused a tool call the read-only policy doesn't allow. */
+/**  LGTM refused a tool call the read-only policy doesn't allow. */
 { kind: "denied"; title: string; tool: string } | { kind: "plan"; entries: string[] };
 
 export type FileHunks = FileHunks_Serialize | FileHunks_Deserialize;
@@ -681,11 +681,11 @@ export type RunStatus = "running" | "done" | "failed" | "cancelled";
 export type RunUpdate = RunUpdate_Serialize | RunUpdate_Deserialize;
 
 export type RunUpdate_Deserialize = 
-/**  A step Prism took, e.g. preparing the checkout. */
+/**  A step LGTM took, e.g. preparing the checkout. */
 { kind: "step"; text: string; warning: boolean } | { kind: "agent"; event: Event_Deserialize } | { kind: "finished"; run: RunView_Deserialize; findings: FindingView_Deserialize[] };
 
 export type RunUpdate_Serialize = 
-/**  A step Prism took, e.g. preparing the checkout. */
+/**  A step LGTM took, e.g. preparing the checkout. */
 { kind: "step"; text: string; warning: boolean } | { kind: "agent"; event: Event_Serialize } | { kind: "finished"; run: RunView_Serialize; findings: FindingView_Serialize[] };
 
 export type RunView = RunView_Serialize | RunView_Deserialize;

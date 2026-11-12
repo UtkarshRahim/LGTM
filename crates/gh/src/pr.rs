@@ -497,7 +497,7 @@ mod live {
                 review_threads(&gh, &pr).await.unwrap().into_iter().map(|t| t.id).collect();
             let before = old.len();
 
-            let url = submit_review(&gh, &pr, &head, ReviewEvent::Comment, "Prism test: single mutation", &[
+            let url = submit_review(&gh, &pr, &head, ReviewEvent::Comment, "LGTM test: single mutation", &[
                 c(3, None, "**nit:** single line"),
                 c(6, Some(4), "range 4–6"),
             ], &[])

@@ -80,7 +80,7 @@ impl Db {
     /// Runs left `running` by a previous launch can't finish any more.
     pub fn fail_unfinished_runs(&self) -> Result<usize, DbError> {
         Ok(self.conn().execute(
-            "UPDATE skill_runs SET status = 'failed', error = 'Prism quit during the run', ended_at = unixepoch()
+            "UPDATE skill_runs SET status = 'failed', error = 'LGTM quit during the run', ended_at = unixepoch()
              WHERE status = 'running'",
             [],
         )?)
@@ -247,6 +247,6 @@ mod tests {
         let (db, pr) = db_with_pr();
         db.start_run(pr, "s", "s", "cursor", "h1").unwrap();
         assert_eq!(db.fail_unfinished_runs().unwrap(), 1);
-        assert_eq!(db.runs(pr).unwrap()[0].error.as_deref(), Some("Prism quit during the run"));
+        assert_eq!(db.runs(pr).unwrap()[0].error.as_deref(), Some("LGTM quit during the run"));
     }
 }

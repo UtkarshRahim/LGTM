@@ -40,7 +40,7 @@ pub enum Event {
     Thought { text: String },
     /// A tool call started or changed; fields are `None` when unchanged.
     Tool { id: String, title: Option<String>, tool: Option<String>, status: Option<String> },
-    /// Prism refused a tool call the read-only policy doesn't allow.
+    /// LGTM refused a tool call the read-only policy doesn't allow.
     Denied { title: String, tool: String },
     Plan { entries: Vec<String> },
 }

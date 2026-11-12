@@ -46,7 +46,7 @@ export function CheckoutButton({ project, pr }: Props) {
           <div className={styles.popTitle}>
             {project.name} has {phase.changed} uncommitted {phase.changed === 1 ? "change" : "changes"}
           </div>
-          <p className="muted">Prism never stashes silently. How should it check out #{pr.number}?</p>
+          <p className="muted">LGTM never stashes silently. How should it check out #{pr.number}?</p>
           <div className={styles.choices}>
             <button className="btn primary" onClick={() => run("worktree")}>
               Use a separate worktree

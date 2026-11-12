@@ -81,7 +81,7 @@ const QUIT_ID: &str = "quit";
 fn app_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     use tauri::menu::{Menu, MenuItem, MenuItemKind};
     let menu = Menu::default(app)?;
-    let quit = MenuItem::with_id(app, QUIT_ID, "Quit Prism", true, Some("CmdOrCtrl+Q"))?;
+    let quit = MenuItem::with_id(app, QUIT_ID, "Quit LGTM", true, Some("CmdOrCtrl+Q"))?;
     for item in menu.items()? {
         let MenuItemKind::Submenu(sub) = item else { continue };
         for (i, entry) in sub.items()?.into_iter().enumerate() {
@@ -154,7 +154,7 @@ pub fn run() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running Prism");
+        .expect("error while running LGTM");
 }
 
 #[cfg(test)]

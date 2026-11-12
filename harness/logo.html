@@ -1,0 +1,90 @@
+<!doctype html>
+<!-- Dev-only: logo drafts. `?only=<id>&size=1024` renders one mark alone for export. -->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@800&family=Space+Grotesk:wght@700&family=JetBrains+Mono:wght@800&family=Fraunces:opsz,wght@144,800&family=Unbounded:wght@700&family=Instrument+Serif:ital@1&display=block"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        margin: 0;
+        background: #0b0d10;
+        color: #8b929c;
+        font: 13px system-ui;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, 300px);
+        gap: 28px 40px;
+        padding: 36px 48px;
+      }
+      .tile {
+        display: grid;
+        justify-items: center;
+        gap: 10px;
+      }
+      .tile svg {
+        width: 240px;
+        height: 240px;
+      }
+      .small {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+      .small svg {
+        width: 32px;
+        height: 32px;
+      }
+      .small svg:last-child {
+        width: 16px;
+        height: 16px;
+      }
+      body.only {
+        background: transparent;
+      }
+      body.only .grid {
+        display: block;
+        padding: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="grid" id="grid"></div>
+    <script type="module">
+      // Each draft: circle fill, optional ring, text colour, font and tuning.
+      const drafts = [
+        { id: "A", name: "Inter Tight · green", bg: "#3fb950", fg: "#0b1a10", font: "Inter Tight", weight: 800, size: 27, track: -1 },
+        { id: "B", name: "Space Grotesk · ring", bg: "#0f1115", ring: "#56d364", fg: "#e6edf3", font: "Space Grotesk", weight: 700, size: 27, track: -0.5 },
+        { id: "C", name: "JetBrains Mono · blue", bg: "#6aa8ff", fg: "#0b1220", font: "JetBrains Mono", weight: 800, size: 24, track: -1 },
+        { id: "D", name: "Fraunces · cream", bg: "#f3ead8", fg: "#1d2a1f", font: "Fraunces", weight: 800, size: 28, track: -0.5 },
+        { id: "E", name: "Unbounded · dark", bg: "#15181d", ring: "#2b313a", fg: "#56d364", font: "Unbounded", weight: 700, size: 19, track: 0 },
+        { id: "F", name: "Instrument Serif · green", bg: "#1d3324", fg: "#7ee787", font: "Instrument Serif", weight: 400, size: 36, track: 0, italic: true },
+      ];
+      const svg = (d) => `
+        <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="50" cy="50" r="${d.ring ? 46 : 48}" fill="${d.bg}" ${d.ring ? `stroke="${d.ring}" stroke-width="4"` : ""}/>
+          <text x="50" y="50" text-anchor="middle" dominant-baseline="central" fill="${d.fg}"
+            font-family="${d.font}" font-weight="${d.weight}" font-size="${d.size}" letter-spacing="${d.track}"
+            ${d.italic ? 'font-style="italic"' : ""}>LGTM</text>
+        </svg>`;
+      const params = new URLSearchParams(location.search);
+      const only = params.get("only");
+      const grid = document.getElementById("grid");
+      if (only) {
+        document.body.classList.add("only");
+        const size = params.get("size") ?? "1024";
+        grid.innerHTML = svg(drafts.find((d) => d.id === only)).replace("<svg ", `<svg width="${size}" height="${size}" `);
+      } else {
+        grid.innerHTML = drafts
+          .map((d) => `<div class="tile">${svg(d)}<div class="small">${svg(d)}${svg(d)}</div><div>${d.id} · ${d.name}</div></div>`)
+          .join("");
+      }
+      await document.fonts.ready;
+      window.__ready = true;
+    </script>
+  </body>
+</html>

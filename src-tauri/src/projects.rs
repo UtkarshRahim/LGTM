@@ -99,7 +99,7 @@ pub fn start_watching(app: &AppHandle, id: i32, git_dir: &Path, root: String) {
 }
 
 /// At startup: refresh each project's remotes (they may have changed while
-/// Prism was closed) and start its watcher.
+/// LGTM was closed) and start its watcher.
 pub async fn watch_all(app: &AppHandle) {
     let state = app.state::<AppState>();
     let rows = match state.db.projects() {

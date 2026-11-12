@@ -25,7 +25,7 @@ type Vars = Arc<HashMap<String, String>>;
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum EnvSource {
-    /// No capture available yet; children inherit Prism's own environment.
+    /// No capture available yet; children inherit LGTM's own environment.
     Inherited,
     Cache,
     Fresh,
@@ -140,7 +140,7 @@ fn overlay(vars: &HashMap<String, String>) -> impl Iterator<Item = (&String, &St
 }
 
 /// Looks up a variable in the login-shell environment, falling back to
-/// Prism's own. May block on first-ever launch like [`command`].
+/// LGTM's own. May block on first-ever launch like [`command`].
 pub fn var(key: &str) -> Option<String> {
     vars_blocking()
         .and_then(|vars| vars.get(key).cloned())

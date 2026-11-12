@@ -100,7 +100,7 @@ pub struct SkillState {
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RunUpdate {
-    /// A step Prism took, e.g. preparing the checkout.
+    /// A step LGTM took, e.g. preparing the checkout.
     Step {
         text: String,
         warning: bool,
@@ -284,7 +284,7 @@ pub fn request_quit(app: &AppHandle) {
     let what = if n == 1 { "An auto review is".to_string() } else { format!("{n} auto reviews are") };
     app.dialog()
         .message(format!("{what} still running. Quitting stops it."))
-        .title("Quit Prism?")
+        .title("Quit LGTM?")
         .kind(MessageDialogKind::Warning)
         .buttons(MessageDialogButtons::OkCancelCustom("Quit".into(), "Cancel".into()))
         .show(move |quit| {
@@ -532,7 +532,7 @@ async fn execute(
 
     match state.mirrors.restore(&root).await {
         Ok(changed) if !changed.is_empty() => warn(format!(
-            "The agent changed {} file(s) in Prism's checkout despite read-only mode; they were reverted: {}",
+            "The agent changed {} file(s) in LGTM's checkout despite read-only mode; they were reverted: {}",
             changed.len(),
             changed.join(", ")
         )),
