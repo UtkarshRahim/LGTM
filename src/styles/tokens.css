@@ -1,0 +1,25 @@
+:root {
+  --bg: #0f1115;
+  --surface: #131519;
+  --surface-2: #15181d;
+  --border: #23272e;
+  --text: #d6dae1;
+  --muted: #8b929c;
+  --accent: #6aa8ff;
+
+  --blocker-fg: #ffb4ab;
+  --blocker-bg: #3a2224;
+  --warning-fg: #f5c776;
+  --warning-bg: #3a2f1a;
+  --nit-fg: #b8bec7;
+  --nit-bg: #262a31;
+
+  --add-bg: rgb(46 160 67 / 0.14);
+  --del-bg: rgb(248 81 73 / 0.14);
+
+  --font-ui: "Inter Variable", system-ui, sans-serif;
+  --font-code: "JetBrains Mono Variable", ui-monospace, monospace;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --radius: 6px;
+}

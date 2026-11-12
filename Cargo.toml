@@ -1,0 +1,16 @@
+[workspace]
+resolver = "3"
+members = ["src-tauri", "crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+prism-gh = { path = "crates/gh" }
+prism-repo = { path = "crates/repo" }
+prism-skills = { path = "crates/skills" }
+prism-agent = { path = "crates/agent" }
+prism-store = { path = "crates/store" }
+prism-env = { path = "crates/env" }

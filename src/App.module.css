@@ -1,0 +1,44 @@
+.shell {
+  display: grid;
+  grid-template-rows: 38px 1fr;
+  height: 100%;
+}
+
+.titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+.main {
+  padding: 24px;
+  overflow: auto;
+}
+
+.status {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+  margin: 0;
+}
+
+.status dt {
+  color: var(--muted);
+}
+
+.status dd {
+  margin: 0;
+  user-select: text;
+}
+
+.error {
+  color: var(--blocker-fg);
+  background: var(--blocker-bg);
+  padding: 8px 12px;
+  border-radius: var(--radius);
+}
