@@ -20,6 +20,14 @@ pub struct NewProject<'a> {
     pub remote: Option<&'a str>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteRow {
+    pub remote: String,
+    pub host: String,
+    pub owner: String,
+    pub repo: String,
+}
+
 pub struct PrRow<'a> {
     pub host: &'a str,
     pub owner: &'a str,
@@ -51,6 +59,44 @@ impl Db {
             params![p.path, p.host, p.owner, p.repo, p.remote],
             |r| r.get(0),
         )?)
+    }
+
+    /// Replaces a project's remotes; the first is also stored as its primary.
+    pub fn set_project_remotes(&self, project_id: i32, remotes: &[RemoteRow]) -> Result<(), DbError> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM project_remotes WHERE project_id = ?1", [project_id])?;
+        for (i, r) in remotes.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO project_remotes (project_id, remote, host, owner, repo, position) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![project_id, r.remote, r.host, r.owner, r.repo, i as i64],
+            )?;
+        }
+        let first = remotes.first();
+        tx.execute(
+            "UPDATE projects SET default_remote = ?2, host = ?3, owner = ?4, repo = ?5 WHERE id = ?1",
+            params![
+                project_id,
+                first.map(|r| &r.remote),
+                first.map(|r| &r.host),
+                first.map(|r| &r.owner),
+                first.map(|r| &r.repo)
+            ],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// All remotes of all projects, in each project's preference order.
+    pub fn project_remotes(&self) -> Result<Vec<(i32, RemoteRow)>, DbError> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare_cached(
+            "SELECT project_id, remote, host, owner, repo FROM project_remotes ORDER BY project_id, position",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((r.get(0)?, RemoteRow { remote: r.get(1)?, host: r.get(2)?, owner: r.get(3)?, repo: r.get(4)? }))
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
     }
 
     pub fn remove_project(&self, id: i32) -> Result<(), DbError> {
@@ -149,6 +195,20 @@ mod tests {
         assert_eq!(db.projects().unwrap()[0].owner.as_deref(), Some("b"));
         db.remove_project(a).unwrap();
         assert!(db.projects().unwrap().is_empty());
+    }
+
+    #[test]
+    fn remotes_replace_and_cascade() {
+        let db = Db::open_in_memory().unwrap();
+        let id = db.add_project(&NewProject { path: "/z", host: None, owner: None, repo: None, remote: None }).unwrap();
+        let r = |remote: &str, owner: &str| RemoteRow { remote: remote.into(), host: "github.com".into(), owner: owner.into(), repo: "zed".into() };
+        db.set_project_remotes(id, &[r("upstream", "zed-industries"), r("origin", "me")]).unwrap();
+        db.set_project_remotes(id, &[r("upstream", "zed-industries"), r("origin", "me"), r("alice", "alice")]).unwrap();
+        let owners: Vec<_> = db.project_remotes().unwrap().into_iter().map(|(_, r)| r.owner).collect();
+        assert_eq!(owners, ["zed-industries", "me", "alice"]);
+        assert_eq!(db.projects().unwrap()[0].owner.as_deref(), Some("zed-industries"));
+        db.remove_project(id).unwrap();
+        assert!(db.project_remotes().unwrap().is_empty());
     }
 
     #[test]

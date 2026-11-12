@@ -7,6 +7,8 @@ use prism_repo::Mirrors;
 use prism_repo::watch::ProjectWatcher;
 use prism_store::{Db, Settings};
 
+use crate::diffs::DiffCache;
+
 pub struct AppState {
     pub db: Db,
     pub db_path: PathBuf,
@@ -17,6 +19,7 @@ pub struct AppState {
     /// `None` until the first discovery finishes.
     pub creds: tokio::sync::RwLock<Option<Vec<Credential>>>,
     pub watchers: Mutex<HashMap<i32, ProjectWatcher>>,
+    pub diffs: DiffCache,
 }
 
 impl AppState {

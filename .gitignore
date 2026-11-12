@@ -6,3 +6,4 @@ target/
 .vite/
 src-tauri/gen/schemas/
 Prism — Implementation Plan.md
+harness/fixtures/

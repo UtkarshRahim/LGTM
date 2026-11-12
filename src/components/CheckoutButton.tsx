@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { commands, type CheckoutMode, type Project } from "../ipc";
+import { commands, type CheckoutMode, type PrRef, type Project } from "../ipc";
 import { errorText } from "../lib/errors";
 import styles from "./CheckoutButton.module.css";
 
 interface Props {
   project: Project;
-  number: number;
+  pr: PrRef;
 }
 
 type Phase =
@@ -16,12 +16,12 @@ type Phase =
   | { kind: "done"; message: string; path?: string }
   | { kind: "error"; message: string; canForce: boolean; mode: CheckoutMode };
 
-export function CheckoutButton({ project, number }: Props) {
+export function CheckoutButton({ project, pr }: Props) {
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
 
   async function run(mode: CheckoutMode, force = false) {
     setPhase({ kind: "busy" });
-    const r = await commands.checkoutPr(project.id, number, mode, false, force);
+    const r = await commands.checkoutPr(project.id, pr, mode, false, force);
     if (r.status === "error") {
       const message = errorText(r.error);
       return setPhase({ kind: "error", message, canForce: !force && /force|diverge|overwrit/i.test(message), mode });
@@ -46,7 +46,7 @@ export function CheckoutButton({ project, number }: Props) {
           <div className={styles.popTitle}>
             {project.name} has {phase.changed} uncommitted {phase.changed === 1 ? "change" : "changes"}
           </div>
-          <p className="muted">Prism never stashes silently. How should it check out #{number}?</p>
+          <p className="muted">Prism never stashes silently. How should it check out #{pr.number}?</p>
           <div className={styles.choices}>
             <button className="btn primary" onClick={() => run("worktree")}>
               Use a separate worktree

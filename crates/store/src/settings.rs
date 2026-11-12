@@ -26,6 +26,25 @@ pub struct Settings {
 pub struct UiSettings {
     pub ui_font: String,
     pub code_font: String,
+    pub diff_layout: DiffLayout,
+    pub file_panel: FilePanel,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum DiffLayout {
+    #[default]
+    Unified,
+    Split,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum FilePanel {
+    /// Sources followed by their tests, generated files last.
+    #[default]
+    ReviewOrder,
+    Tree,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, specta::Type)]
@@ -68,7 +87,12 @@ impl Default for Settings {
 
 impl Default for UiSettings {
     fn default() -> Self {
-        Self { ui_font: "Inter".into(), code_font: "JetBrains Mono".into() }
+        Self {
+            ui_font: "Inter".into(),
+            code_font: "JetBrains Mono".into(),
+            diff_layout: DiffLayout::default(),
+            file_panel: FilePanel::default(),
+        }
     }
 }
 

@@ -28,6 +28,11 @@
   background: var(--surface);
 }
 
+.item[data-selected="true"] {
+  background: #17233a;
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
 .state {
   width: 8px;
   height: 8px;

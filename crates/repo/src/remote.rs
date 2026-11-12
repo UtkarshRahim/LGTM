@@ -30,10 +30,10 @@ pub fn parse_url(url: &str) -> Option<(String, String, String)> {
     Some((host.to_ascii_lowercase(), owner.to_owned(), repo.to_owned()))
 }
 
-/// Picks the forge repo for a project from `git remote -v` output:
-/// `upstream` first (fork workflows), then `origin`, then the first remote.
-pub fn pick(remote_v: &str) -> Option<RemoteRepo> {
-    let remotes: Vec<RemoteRepo> = remote_v
+/// Every forge repo in `git remote -v` output, one per distinct repo:
+/// `upstream` first (fork workflows), then `origin`, then the rest by name.
+pub fn all(remote_v: &str) -> Vec<RemoteRepo> {
+    let mut remotes: Vec<RemoteRepo> = remote_v
         .lines()
         .filter(|l| l.ends_with("(fetch)"))
         .filter_map(|l| {
@@ -43,11 +43,25 @@ pub fn pick(remote_v: &str) -> Option<RemoteRepo> {
             Some(RemoteRepo { remote: name.into(), host, owner, repo })
         })
         .collect();
-    ["upstream", "origin"]
-        .iter()
-        .find_map(|want| remotes.iter().find(|r| r.remote == *want))
-        .or(remotes.first())
-        .cloned()
+    let rank = |r: &RemoteRepo| match r.remote.as_str() {
+        "upstream" => 0,
+        "origin" => 1,
+        _ => 2,
+    };
+    remotes.sort_by(|a, b| rank(a).cmp(&rank(b)).then_with(|| a.remote.cmp(&b.remote)));
+    let mut seen = Vec::new();
+    remotes.retain(|r| {
+        let key = (r.host.clone(), r.owner.to_ascii_lowercase(), r.repo.to_ascii_lowercase());
+        let fresh = !seen.contains(&key);
+        seen.push(key);
+        fresh
+    });
+    remotes
+}
+
+/// The project's primary repo: the first of [`all`].
+pub fn pick(remote_v: &str) -> Option<RemoteRepo> {
+    all(remote_v).into_iter().next()
 }
 
 #[cfg(test)]
@@ -79,5 +93,15 @@ mod tests {
         let r = pick("fork\tgit@github.com:x/y.git (fetch)\norigin\tgit@github.com:a/b.git (fetch)\n").unwrap();
         assert_eq!(r.remote, "origin");
         assert_eq!(pick("").map(|r| r.remote), None);
+    }
+
+    #[test]
+    fn all_remotes_ordered_and_deduped() {
+        let out = "alice\tgit@github.com:alice/zed.git (fetch)\n\
+                   origin\tgit@github.com:me/zed.git (fetch)\n\
+                   mirror\thttps://github.com/me/zed (fetch)\n\
+                   upstream\thttps://github.com/zed-industries/zed.git (fetch)\n";
+        let names: Vec<_> = all(out).into_iter().map(|r| r.remote).collect();
+        assert_eq!(names, ["upstream", "origin", "alice"]);
     }
 }

@@ -19,17 +19,25 @@ pub type GitResult<T> = Result<T, GitError>;
 pub struct Git<'a> {
     dir: &'a Path,
     token: Option<&'a str>,
+    offline: bool,
 }
 
 impl<'a> Git<'a> {
     pub fn new(dir: &'a Path) -> Self {
-        Self { dir, token: None }
+        Self { dir, token: None, offline: false }
     }
 
     /// Authenticates HTTPS fetches with a token passed through the
     /// environment, so it never appears in process arguments.
     pub fn with_token(mut self, token: &'a str) -> Self {
         self.token = Some(token);
+        self
+    }
+
+    /// Never fetch missing objects from a promisor remote. Without this, probing
+    /// a partial clone for an absent commit downloads its entire history.
+    pub fn offline(mut self) -> Self {
+        self.offline = true;
         self
     }
 
@@ -55,6 +63,9 @@ impl<'a> Git<'a> {
             .env("GIT_TERMINAL_PROMPT", "0")
             .env("GIT_OPTIONAL_LOCKS", "0")
             .kill_on_drop(true);
+        if self.offline {
+            cmd.env("GIT_NO_LAZY_FETCH", "1");
+        }
         if let Some(token) = self.token {
             let basic = base64::engine::general_purpose::STANDARD.encode(format!("x-access-token:{token}"));
             cmd.env("GIT_CONFIG_COUNT", "1")

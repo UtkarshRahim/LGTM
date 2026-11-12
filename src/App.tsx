@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { commands, events, prKey, type Accounts, type PrRef, type Project } from "./ipc";
+import { commands, events, prKey, type Accounts, type PrRef, type Project, type Settings } from "./ipc";
 import { errorText } from "./lib/errors";
 import { Sidebar, type Tab } from "./components/Sidebar";
 import { Home } from "./views/Home";
@@ -18,6 +18,7 @@ export function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [dropping, setDropping] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [settings, setSettings] = useState<Settings | null>(null);
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
   const activeRef = useRef(active);
@@ -38,6 +39,7 @@ export function App() {
   useEffect(() => {
     loadProjects();
     commands.accounts().then((r) => r.status === "ok" && setAccounts(r.data));
+    commands.getSettings().then(setSettings);
   }, [loadProjects]);
 
   const openPr = useCallback((pr: PrRef, title?: string) => {
@@ -157,6 +159,20 @@ export function App() {
     };
   }, []);
 
+  const updateUi = useCallback(
+    (patch: Partial<Settings["ui"]>) => {
+      setSettings((s) => {
+        if (!s) return s;
+        const next = { ...s, ui: { ...s.ui, ...patch } };
+        commands.saveSettings(next).then((r) => r.status === "error" && flash(errorText(r.error)));
+        return next;
+      });
+    },
+    [flash],
+  );
+  const setLayout = useCallback((diff_layout: Settings["ui"]["diff_layout"]) => updateUi({ diff_layout }), [updateUi]);
+  const setPanel = useCallback((file_panel: Settings["ui"]["file_panel"]) => updateUi({ file_panel }), [updateUi]);
+
   const afterAccountChange = (a: Accounts) => {
     setAccounts(a);
     setAccountMenuOpen(false);
@@ -203,6 +219,10 @@ export function App() {
                 pr={t.pr}
                 active={active === key}
                 projects={projects}
+                layout={settings?.ui.diff_layout ?? "unified"}
+                panel={settings?.ui.file_panel ?? "review_order"}
+                onLayout={setLayout}
+                onPanel={setPanel}
                 onTitle={(title) => setTabs((ts) => ts.map((x) => (prKey(x.pr) === key ? { ...x, title } : x)))}
                 onSwitchAccount={() => setAccountMenuOpen(true)}
               />

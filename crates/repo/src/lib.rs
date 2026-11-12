@@ -2,6 +2,7 @@ pub mod checkout;
 pub mod diff;
 pub mod git;
 pub mod mirror;
+pub mod order;
 pub mod project;
 pub mod remote;
 pub mod watch;

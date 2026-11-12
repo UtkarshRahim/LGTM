@@ -18,6 +18,7 @@ fn migrations() -> Migrations<'static> {
     Migrations::new(vec![
         M::up(include_str!("migrations/001_init.sql")),
         M::up(include_str!("migrations/002_pr_cache.sql")),
+        M::up(include_str!("migrations/003_project_remotes.sql")),
     ])
 }
 
@@ -66,7 +67,7 @@ mod tests {
     #[test]
     fn opens_and_migrates() {
         let db = Db::open_in_memory().unwrap();
-        assert_eq!(db.schema_version().unwrap(), 2);
+        assert_eq!(db.schema_version().unwrap(), 3);
         let tables: i64 = db
             .conn()
             .query_row(

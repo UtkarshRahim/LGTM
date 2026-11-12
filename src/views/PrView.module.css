@@ -111,11 +111,29 @@
   color: var(--warning-fg);
 }
 
-.files {
+.body {
   flex: 1;
-  overflow-y: auto;
-  padding: 16px 24px 48px;
-  display: grid;
-  align-content: start;
-  gap: 12px;
+  min-height: 0;
+  display: flex;
+}
+
+.segmented {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.segmented button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 1px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.segmented button[data-on="true"] {
+  background: var(--surface-2);
+  color: var(--text);
 }

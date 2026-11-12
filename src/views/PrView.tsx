@@ -1,8 +1,19 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { commands, events, type AppError, type PrRef, type PrView as View, type Project } from "../ipc";
+import {
+  commands,
+  events,
+  type AppError,
+  type DiffLayout,
+  type FilePanel as PanelMode,
+  type PrRef,
+  type PrView as View,
+  type Project,
+  type ReviewThread,
+} from "../ipc";
 import { ErrorNotice } from "../components/ErrorNotice";
-import { FileCard } from "../components/Diff";
+import { DiffView, type DiffViewHandle } from "../components/DiffView";
+import { FilePanel } from "../components/FilePanel";
 import { CheckoutButton } from "../components/CheckoutButton";
 import { errorText } from "../lib/errors";
 import styles from "./PrView.module.css";
@@ -11,17 +22,27 @@ interface Props {
   pr: PrRef;
   active: boolean;
   projects: Project[];
+  layout: DiffLayout;
+  panel: PanelMode;
+  onLayout: (l: DiffLayout) => void;
+  onPanel: (m: PanelMode) => void;
   onTitle: (title: string) => void;
   onSwitchAccount: () => void;
 }
 
-export function PrView({ pr, active, projects, onTitle, onSwitchAccount }: Props) {
+const NO_THREADS: ReviewThread[] = [];
+
+export function PrView({ pr, active, projects, layout, panel, onLayout, onPanel, onTitle, onSwitchAccount }: Props) {
   const [view, setView] = useState<View | null>(null);
   const [error, setError] = useState<AppError | null>(null);
   const [localState, setLocalState] = useState<"idle" | "loading" | "failed">("idle");
   const [localError, setLocalError] = useState<string | null>(null);
+  const [threads, setThreads] = useState<ReviewThread[]>(NO_THREADS);
+  const [threadsError, setThreadsError] = useState<string | null>(null);
   const [updated, setUpdated] = useState(false);
   const [openMs, setOpenMs] = useState<number | null>(null);
+  const [currentFile, setCurrentFile] = useState(0);
+  const diffRef = useRef<DiffViewHandle>(null);
   const started = useRef(0);
   const onTitleRef = useRef(onTitle);
   onTitleRef.current = onTitle;
@@ -31,13 +52,15 @@ export function PrView({ pr, active, projects, onTitle, onSwitchAccount }: Props
     setError(null);
     setUpdated(false);
     setOpenMs(null);
+    setThreadsError(null);
+    commands.prThreads(pr).then((r) => (r.status === "ok" ? setThreads(r.data) : setThreadsError(errorText(r.error))));
     const r = await commands.openPr(pr);
     if (r.status === "error") return setError(r.error);
     setView(r.data);
     onTitleRef.current(r.data.detail.summary.title);
     if (r.data.source === "api") {
       setLocalState("loading");
-      const local = await commands.prLocalDiff(pr);
+      const local = await commands.prSyncLocal(pr);
       if (local.status === "ok") {
         setView((v) => (v ? { ...v, files: local.data, source: "local" } : v));
         setLocalState("idle");
@@ -68,6 +91,15 @@ export function PrView({ pr, active, projects, onTitle, onSwitchAccount }: Props
     };
   }, [pr]);
 
+  const threadCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const t of threads) m.set(t.path, (m.get(t.path) ?? 0) + 1);
+    return m;
+  }, [threads]);
+
+  const toggleLayout = useCallback(() => onLayout(layout === "split" ? "unified" : "split"), [layout, onLayout]);
+  const pick = useCallback((fi: number) => diffRef.current?.scrollToFile(fi), []);
+
   if (error) {
     return (
       <div className={styles.center}>
@@ -79,6 +111,7 @@ export function PrView({ pr, active, projects, onTitle, onSwitchAccount }: Props
 
   const d = view.detail;
   const project = projects.find((p) => p.id === view.project_id);
+  const unresolved = threads.filter((t) => !t.resolved).length;
 
   return (
     <div className={styles.pr} data-active={active}>
@@ -91,7 +124,7 @@ export function PrView({ pr, active, projects, onTitle, onSwitchAccount }: Props
             <button className="btn ghost" onClick={() => openUrl(d.summary.url)}>
               GitHub ↗
             </button>
-            {project && <CheckoutButton project={project} number={pr.number} />}
+            {project && <CheckoutButton project={project} pr={pr} />}
           </div>
         </div>
         <div className={styles.meta}>
@@ -104,14 +137,28 @@ export function PrView({ pr, active, projects, onTitle, onSwitchAccount }: Props
             {d.head_ref} → {d.base_ref}
           </span>
           <span>
-            {d.changed_files} files <span className={styles.add}>+{d.additions}</span> <span className={styles.del}>−{d.deletions}</span>
+            {d.changed_files} files <span className={styles.add}>+{d.additions}</span>{" "}
+            <span className={styles.del}>−{d.deletions}</span>
           </span>
+          {threads.length > 0 && (
+            <span>
+              {threads.length} threads{unresolved > 0 && `, ${unresolved} unresolved`}
+            </span>
+          )}
           {project && <span className={styles.local}>in project {project.name}</span>}
           <span className={styles.timing} title="Time to first diff render">
             {view.source === "api" ? "GitHub patches" : "local"}
             {openMs !== null && ` · ${openMs} ms`}
             {localState === "loading" && " · syncing mirror…"}
           </span>
+          <div className={styles.segmented} title="Toggle layout (s)">
+            <button data-on={layout === "unified"} onClick={() => onLayout("unified")}>
+              Unified
+            </button>
+            <button data-on={layout === "split"} onClick={() => onLayout("split")}>
+              Split
+            </button>
+          </div>
         </div>
         {updated && (
           <div className={styles.banner}>
@@ -122,11 +169,28 @@ export function PrView({ pr, active, projects, onTitle, onSwitchAccount }: Props
           </div>
         )}
         {localState === "failed" && <div className={styles.warn}>Showing GitHub's patches; local diff failed: {localError}</div>}
+        {threadsError && <div className={styles.warn}>Couldn't load review threads: {threadsError}</div>}
       </header>
-      <div className={styles.files}>
-        {view.files.map((f) => (
-          <FileCard key={f.path} file={f} loadingLocal={localState === "loading"} />
-        ))}
+      <div className={styles.body}>
+        <FilePanel
+          files={view.files}
+          current={currentFile}
+          mode={panel}
+          onMode={onPanel}
+          onPick={pick}
+          threadCounts={threadCounts}
+        />
+        <DiffView
+          ref={diffRef}
+          pr={pr}
+          files={view.files}
+          layout={layout}
+          syncing={localState === "loading"}
+          threads={threads}
+          active={active}
+          onCurrentFile={setCurrentFile}
+          onToggleLayout={toggleLayout}
+        />
       </div>
     </div>
   );

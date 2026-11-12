@@ -93,7 +93,12 @@ export function Sidebar(p: Props) {
               ) : (
                 <span className={styles.missing}>folder unavailable</span>
               )}
-              {!proj.remote && <span className={styles.missing}>no GitHub remote</span>}
+              {proj.remotes.length === 0 && <span className={styles.missing}>no GitHub remote</span>}
+              {proj.remotes.length > 1 && (
+                <span title={proj.remotes.map((r) => `${r.remote}: ${r.owner}/${r.repo}`).join("\n")}>
+                  {proj.remotes.length} remotes
+                </span>
+              )}
             </div>
           </div>
         ))}

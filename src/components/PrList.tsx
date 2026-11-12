@@ -1,24 +1,25 @@
 import { prKey, type PrHit, type PrRef } from "../ipc";
+import { ago } from "../lib/time";
 import styles from "./PrList.module.css";
 
 interface Props {
   hits: PrHit[];
   onOpen: (pr: PrRef, title?: string) => void;
+  /** Index of the keyboard-selected row. */
+  selected?: number;
 }
 
-function ago(iso: string): string {
-  const s = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (s < 3600) return `${Math.max(1, Math.round(s / 60))}m`;
-  if (s < 86400) return `${Math.round(s / 3600)}h`;
-  return `${Math.round(s / 86400)}d`;
-}
-
-export function PrList({ hits, onOpen }: Props) {
+export function PrList({ hits, onOpen, selected }: Props) {
   return (
     <ul className={styles.list}>
-      {hits.map(({ summary: s, project_id }) => (
+      {hits.map(({ summary: s, project_id }, i) => (
         <li key={prKey(s.pr)}>
-          <button className={styles.item} onClick={() => onOpen(s.pr, s.title)}>
+          <button
+            className={styles.item}
+            data-selected={i === selected}
+            ref={i === selected ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
+            onClick={() => onOpen(s.pr, s.title)}
+          >
             <span className={styles.state} data-state={s.is_draft ? "DRAFT" : s.state} title={s.is_draft ? "Draft" : s.state.toLowerCase()} />
             <span className={`${styles.title} truncate`}>{s.title}</span>
             <span className={`${styles.meta} truncate`}>

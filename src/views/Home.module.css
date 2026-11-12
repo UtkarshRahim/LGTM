@@ -48,8 +48,43 @@
 }
 
 .heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   margin: 0 0 8px;
   font-size: var(--text-sm);
   font-weight: 600;
   color: var(--muted);
+}
+
+.queueHead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: var(--text-sm);
+}
+
+.queueHead :global(.btn) {
+  margin-left: auto;
+}
+
+.title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.count {
+  color: var(--text);
+}
+
+.hint {
+  font-weight: 400;
+  color: #5d646e;
+}
+
+.empty {
+  margin: 0;
+  color: #5d646e;
+  font-size: var(--text-sm);
 }

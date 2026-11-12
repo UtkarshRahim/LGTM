@@ -1,5 +1,6 @@
 mod accounts;
 mod commands;
+mod diffs;
 mod error;
 mod projects;
 mod prs;
@@ -34,10 +35,13 @@ fn specta_builder() -> Builder<tauri::Wry> {
             projects::project_pr_counts,
             projects::checkout_pr,
             prs::search,
-            prs::involving_me,
             prs::open_pr,
-            prs::pr_local_diff,
+            prs::pr_sync_local,
+            prs::pr_hunks,
+            prs::pr_threads,
+            prs::needs_you,
         ])
+        .constant("HIGHLIGHT_CLASSES", prism_syntax::CLASSES)
         .events(collect_events![projects::ProjectStatusChanged, prs::PrUpdated])
 }
 
@@ -78,6 +82,7 @@ pub fn run() {
                 worktrees_dir: data_dir.join("worktrees"),
                 creds: tokio::sync::RwLock::new(None),
                 watchers: Mutex::new(HashMap::new()),
+                diffs: Default::default(),
             });
 
             let handle = app.handle().clone();

@@ -265,6 +265,125 @@ pub async fn search_text(gh: &GitHub, text: &str, repos: &[(String, String)]) ->
     }
 }
 
+#[derive(Debug, Clone, Default, Serialize, specta::Type)]
+pub struct NeedsYou {
+    /// Your review (or your team's) is requested.
+    pub blocking: Vec<PrSummary>,
+    /// You reviewed, and the head moved since.
+    pub rereview: Vec<PrSummary>,
+    /// Open in your projects; you haven't reviewed and aren't requested.
+    pub new: Vec<PrSummary>,
+}
+
+const OPEN_READY: &str = "is:pr is:open -is:draft archived:false";
+/// GitHub rejects search queries longer than this.
+const MAX_QUERY: usize = 256;
+
+async fn search_prs(gh: &GitHub, q: &str) -> GhResult<Vec<PrSummary>> {
+    #[derive(Deserialize)]
+    struct Data {
+        search: Nodes,
+    }
+    #[derive(Deserialize)]
+    struct Nodes {
+        nodes: Vec<Option<RawPr>>,
+    }
+    let query = format!(
+        "query($q: String!) {{ search(query: $q, type: ISSUE, first: 30) {{ nodes {{ ... on PullRequest {{ {PR_FIELDS} }} }} }} }}"
+    );
+    let data: Data = gh.graphql(&query, json!({ "q": q }), "search").await?;
+    Ok(data.search.nodes.into_iter().flatten().map(|p| p.into_summary(gh.host())).collect())
+}
+
+async fn search_rereview(gh: &GitHub, q: &str) -> GhResult<Vec<PrSummary>> {
+    #[derive(Deserialize)]
+    struct Data {
+        search: Nodes,
+    }
+    #[derive(Deserialize)]
+    struct Nodes {
+        nodes: Vec<Option<Reviewed>>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Reviewed {
+        #[serde(flatten)]
+        pr: RawPr,
+        head_ref_oid: String,
+        reviews: ReviewNodes,
+    }
+    #[derive(Deserialize)]
+    struct ReviewNodes {
+        nodes: Vec<Review>,
+    }
+    #[derive(Deserialize)]
+    struct Review {
+        commit: Option<Oid>,
+    }
+    #[derive(Deserialize)]
+    struct Oid {
+        oid: String,
+    }
+    let query = format!(
+        "query($q: String!, $login: String!) {{ search(query: $q, type: ISSUE, first: 30) {{ nodes {{ ... on PullRequest {{ \
+           {PR_FIELDS} headRefOid reviews(author: $login, last: 1) {{ nodes {{ commit {{ oid }} }} }} }} }} }} }}"
+    );
+    let data: Data = gh.graphql(&query, json!({ "q": q, "login": gh.login() }), "search").await?;
+    Ok(data
+        .search
+        .nodes
+        .into_iter()
+        .flatten()
+        .filter(|r| r.reviews.nodes.last().and_then(|rv| rv.commit.as_ref()).is_some_and(|c| c.oid != r.head_ref_oid))
+        .map(|r| r.pr.into_summary(gh.host()))
+        .collect())
+}
+
+/// Splits `repo:` qualifiers into queries that fit GitHub's length limit.
+fn chunked_repo_queries(base: &str, repos: &[(String, String)]) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut q = base.to_owned();
+    let mut has_repo = false;
+    for (o, r) in repos {
+        let term = format!(" repo:{o}/{r}");
+        if has_repo && q.len() + term.len() > MAX_QUERY {
+            out.push(std::mem::replace(&mut q, base.to_owned()));
+        }
+        q.push_str(&term);
+        has_repo = true;
+    }
+    if has_repo {
+        out.push(q);
+    }
+    out
+}
+
+pub async fn needs_you(gh: &GitHub, repos: &[(String, String)]) -> GhResult<NeedsYou> {
+    let blocking_q = format!("{OPEN_READY} review-requested:@me sort:updated-desc");
+    let rereview_q = format!("{OPEN_READY} reviewed-by:@me -review-requested:@me -author:@me sort:updated-desc");
+    let new_qs = chunked_repo_queries(
+        &format!("{OPEN_READY} -author:@me -reviewed-by:@me -review-requested:@me sort:updated-desc"),
+        repos,
+    );
+
+    let (blocking, rereview, new) = tokio::join!(
+        search_prs(gh, &blocking_q),
+        search_rereview(gh, &rereview_q),
+        join_all(new_qs.iter().map(|q| search_prs(gh, q))),
+    );
+    let mut fresh: Vec<PrSummary> = Vec::new();
+    for batch in new {
+        for pr in batch? {
+            if !fresh.iter().any(|f| f.pr == pr.pr) {
+                fresh.push(pr);
+            }
+        }
+    }
+    fresh.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    fresh.truncate(30);
+    Ok(NeedsYou { blocking: blocking?, rereview: rereview?, new: fresh })
+}
+
 /// Open PR count per repo, in input order; `None` where the repo isn't visible.
 pub async fn open_pr_counts(gh: &GitHub, repos: &[(String, String)]) -> GhResult<Vec<Option<u32>>> {
     if repos.is_empty() {
@@ -301,6 +420,12 @@ mod live {
     use super::*;
     use crate::auth;
 
+    /// The HTTP client is process-wide, so its pooled connections must
+    /// outlive any single test: every live test shares one runtime.
+    static RT: std::sync::LazyLock<tokio::runtime::Runtime> = std::sync::LazyLock::new(|| {
+        tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap()
+    });
+
     async fn client() -> Option<GitHub> {
         std::env::var("PRISM_LIVE_TESTS").ok()?;
         let creds = auth::discover().await;
@@ -312,39 +437,69 @@ mod live {
         PrRef { host: "github.com".into(), owner: owner.into(), repo: repo.into(), number }
     }
 
-    #[tokio::test]
-    async fn fetches_detail_and_merge_base() {
-        let Some(gh) = client().await else { return };
-        let r = pr("cli", "cli", 9000);
-        let t = std::time::Instant::now();
-        let d = pull_request(&gh, &r).await.unwrap();
-        let mb = merge_base(&gh, &r, &d.base_sha, &d.head_sha).await.unwrap();
-        println!("{} files, merge base {mb}, {:?}", d.changed_files, t.elapsed());
-        assert_eq!(d.summary.pr, r);
-        assert_eq!(mb.len(), 40);
+    #[test]
+    fn fetches_detail_and_merge_base() {
+        RT.block_on(async {
+            let Some(gh) = client().await else { return };
+            let r = pr("cli", "cli", 9000);
+            let t = std::time::Instant::now();
+            let d = pull_request(&gh, &r).await.unwrap();
+            let mb = merge_base(&gh, &r, &d.base_sha, &d.head_sha).await.unwrap();
+            println!("{} files, merge base {mb}, {:?}", d.changed_files, t.elapsed());
+            assert_eq!(d.summary.pr, r);
+            assert_eq!(mb.len(), 40);
+        })
     }
 
-    #[tokio::test]
-    async fn missing_repo_is_not_visible() {
-        let Some(gh) = client().await else { return };
-        let e = pull_request(&gh, &pr("UtkarshRahim", "definitely-not-a-repo-xyz", 1)).await.unwrap_err();
-        assert!(matches!(e, GhError::NotVisible { .. }), "{e:?}");
+    #[test]
+    fn missing_repo_is_not_visible() {
+        RT.block_on(async {
+            let Some(gh) = client().await else { return };
+            let e = pull_request(&gh, &pr("UtkarshRahim", "definitely-not-a-repo-xyz", 1)).await.unwrap_err();
+            assert!(matches!(e, GhError::NotVisible { .. }), "{e:?}");
+        })
     }
 
-    #[tokio::test]
-    async fn number_across_repos_skips_missing() {
-        let Some(gh) = client().await else { return };
-        let repos = vec![("cli".into(), "cli".into()), ("nope-xyz-404".into(), "nope".into())];
-        let found = find_number(&gh, &repos, 9000).await.unwrap();
-        assert_eq!(found.len(), 1);
-        let counts = open_pr_counts(&gh, &repos).await.unwrap();
-        assert!(counts[0].is_some() && counts[1].is_none());
+    #[test]
+    fn number_across_repos_skips_missing() {
+        RT.block_on(async {
+            let Some(gh) = client().await else { return };
+            let repos = vec![("cli".into(), "cli".into()), ("nope-xyz-404".into(), "nope".into())];
+            let found = find_number(&gh, &repos, 9000).await.unwrap();
+            assert_eq!(found.len(), 1);
+            let counts = open_pr_counts(&gh, &repos).await.unwrap();
+            assert!(counts[0].is_some() && counts[1].is_none());
+        })
     }
 
-    #[tokio::test]
-    async fn text_search() {
-        let Some(gh) = client().await else { return };
-        let found = search_text(&gh, "codespaces", &[("cli".into(), "cli".into())]).await.unwrap();
-        assert!(!found.is_empty());
+    #[test]
+    fn repo_queries_respect_length_limit() {
+        let repos: Vec<(String, String)> = (0..40).map(|i| (format!("owner{i}"), format!("repository-{i}"))).collect();
+        let qs = chunked_repo_queries(OPEN_READY, &repos);
+        assert!(qs.len() > 1);
+        assert!(qs.iter().all(|q| q.len() <= MAX_QUERY));
+        assert_eq!(qs.iter().map(|q| q.matches(" repo:").count()).sum::<usize>(), 40);
+        assert!(chunked_repo_queries(OPEN_READY, &[]).is_empty());
+    }
+
+    #[test]
+    fn needs_you_and_threads() {
+        RT.block_on(async {
+            let Some(gh) = client().await else { return };
+            let n = needs_you(&gh, &[("cli".into(), "cli".into()), ("tauri-apps".into(), "tauri".into())]).await.unwrap();
+            println!("blocking {} rereview {} new {}", n.blocking.len(), n.rereview.len(), n.new.len());
+            assert!(!n.new.is_empty());
+            let threads = crate::threads::review_threads(&gh, &pr("cli", "cli", 9000)).await.unwrap();
+            println!("{} threads on cli/cli#9000", threads.len());
+        })
+    }
+
+    #[test]
+    fn text_search() {
+        RT.block_on(async {
+            let Some(gh) = client().await else { return };
+            let found = search_text(&gh, "codespaces", &[("cli".into(), "cli".into())]).await.unwrap();
+            assert!(!found.is_empty());
+        })
     }
 }

@@ -9,7 +9,8 @@ use crate::remote::{self, RemoteRepo};
 pub struct ProjectInfo {
     pub root: String,
     pub git_dir: String,
-    pub remote: Option<RemoteRepo>,
+    /// Every forge repo among the remotes; the first is the primary.
+    pub remotes: Vec<RemoteRepo>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
@@ -36,7 +37,7 @@ pub async fn inspect(path: &Path) -> GitResult<ProjectInfo> {
     let root = lines.next().unwrap_or_default().to_owned();
     let git_dir = lines.next().unwrap_or_default().to_owned();
     let remotes = Git::new(Path::new(&root)).run(["remote", "-v"]).await?;
-    Ok(ProjectInfo { root, git_dir, remote: remote::pick(&remotes) })
+    Ok(ProjectInfo { root, git_dir, remotes: remote::all(&remotes) })
 }
 
 pub async fn status(root: &Path) -> GitResult<ProjectStatus> {
@@ -94,7 +95,7 @@ mod tests {
         git.run(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init"]).await.unwrap();
 
         let info = inspect(&dir.join(".")).await.unwrap();
-        assert_eq!(info.remote.unwrap().owner, "acme");
+        assert_eq!(info.remotes[0].owner, "acme");
         assert!(info.git_dir.ends_with(".git"));
 
         let clean = status(&dir).await.unwrap();

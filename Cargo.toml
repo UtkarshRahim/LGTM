@@ -14,3 +14,4 @@ prism-skills = { path = "crates/skills" }
 prism-agent = { path = "crates/agent" }
 prism-store = { path = "crates/store" }
 prism-env = { path = "crates/env" }
+prism-syntax = { path = "crates/syntax" }

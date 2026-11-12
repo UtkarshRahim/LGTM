@@ -100,6 +100,52 @@ kbd {
   white-space: nowrap;
 }
 
+/* Syntax classes emitted by prism-syntax (see HIGHLIGHT_CLASSES). */
+.hl-keyword,
+.hl-operator {
+  color: #ff7b72;
+}
+.hl-string,
+.hl-string-special {
+  color: #a5d6ff;
+}
+.hl-comment {
+  color: #8b949e;
+  font-style: italic;
+}
+.hl-function,
+.hl-function-builtin {
+  color: #d2a8ff;
+}
+.hl-type,
+.hl-type-builtin,
+.hl-constructor,
+.hl-variable-builtin {
+  color: #ffa657;
+}
+.hl-constant,
+.hl-constant-builtin,
+.hl-number,
+.hl-property,
+.hl-attribute,
+.hl-escape {
+  color: #79c0ff;
+}
+.hl-tag {
+  color: #7ee787;
+}
+.hl-label,
+.hl-variable-parameter {
+  color: #ffb77c;
+}
+.hl-punctuation {
+  color: #9aa3ad;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;

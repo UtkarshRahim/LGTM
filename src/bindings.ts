@@ -17,15 +17,21 @@ export const commands = {
 	addProject: (path: string) => typedError<Project_Serialize, AppError_Serialize>(__TAURI_INVOKE("add_project", { path })),
 	removeProject: (id: number) => typedError<null, AppError_Serialize>(__TAURI_INVOKE("remove_project", { id })),
 	projectStatus: (id: number) => typedError<ProjectStatus_Serialize | null, AppError_Serialize>(__TAURI_INVOKE("project_status", { id })),
-	/**  Open PR counts, one GraphQL request per host. */
+	/**  Open PR counts across every remote, one GraphQL request per host. */
 	projectPrCounts: () => typedError<PrCount_Serialize[], AppError_Serialize>(__TAURI_INVOKE("project_pr_counts")),
-	checkoutPr: (projectId: number, number: number, mode: CheckoutMode, detach: boolean, force: boolean) => typedError<CheckoutOutcome_Serialize, AppError_Serialize>(__TAURI_INVOKE("checkout_pr", { projectId, number, mode, detach, force })),
+	checkoutPr: (projectId: number, pr: PrRef, mode: CheckoutMode, detach: boolean, force: boolean) => typedError<CheckoutOutcome_Serialize, AppError_Serialize>(__TAURI_INVOKE("checkout_pr", { projectId, pr, mode, detach, force })),
 	search: (input: string) => typedError<SearchOutcome_Serialize, AppError_Serialize>(__TAURI_INVOKE("search", { input })),
-	/**  Open PRs involving the signed-in github.com account, most recently updated first. */
-	involvingMe: () => typedError<PrHit_Serialize[], AppError_Serialize>(__TAURI_INVOKE("involving_me")),
 	openPr: (pr: PrRef) => typedError<PrView_Serialize, AppError_Serialize>(__TAURI_INVOKE("open_pr", { pr })),
-	/**  The PR diff from the local mirror, fetching commits as needed. */
-	prLocalDiff: (pr: PrRef) => typedError<FileDiff_Serialize[], AppError_Serialize>(__TAURI_INVOKE("pr_local_diff", { pr })),
+	/**
+	 *  Replaces GitHub's patches with the diff from the local mirror, fetching
+	 *  commits as needed. Returns the new file list.
+	 */
+	prSyncLocal: (pr: PrRef) => typedError<FileMeta_Serialize[], AppError_Serialize>(__TAURI_INVOKE("pr_sync_local", { pr })),
+	/**  Hunks (with syntax highlighting) for the given files of an opened PR. */
+	prHunks: (pr: PrRef, paths: string[]) => typedError<FileHunks_Serialize[], AppError_Serialize>(__TAURI_INVOKE("pr_hunks", { pr, paths })),
+	prThreads: (pr: PrRef) => typedError<ReviewThread_Serialize[], AppError_Serialize>(__TAURI_INVOKE("pr_threads", { pr })),
+	/**  Home's queue, across github.com and every host your projects live on. */
+	needsYou: () => typedError<NeedsYou_Serialize, AppError_Serialize>(__TAURI_INVOKE("needs_you")),
 };
 
 /** Events */
@@ -33,6 +39,9 @@ export const events = {
 	prUpdated: makeEvent<PrUpdated, PrUpdated>("pr-updated"),
 	projectStatusChanged: makeEvent<ProjectStatusChanged_Serialize, ProjectStatusChanged_Deserialize>("project-status-changed"),
 };
+
+/* Constants */
+export const HIGHLIGHT_CLASSES = ["attribute","comment","constant","constant.builtin","constructor","embedded","escape","function","function.builtin","keyword","label","number","operator","property","punctuation","string","string.special","tag","type","type.builtin","variable.builtin","variable.parameter"] as const;
 
 /* Types */
 export type Account = {
@@ -121,6 +130,8 @@ export type CheckoutSettings_Serialize = {
 	when_dirty: DirtyCheckout,
 };
 
+export type DiffLayout = "unified" | "split";
+
 export type DiffLine = DiffLine_Serialize | DiffLine_Deserialize;
 
 export type DiffLine_Deserialize = {
@@ -137,8 +148,10 @@ export type DiffLine_Serialize = {
 	text: string,
 };
 
+export type DiffSide = "LEFT" | "RIGHT";
+
 export type DiffSource = 
-/**  GitHub's per-file patches; call `pr_local_diff` for the local version. */
+/**  GitHub's per-file patches; call `pr_sync_local` for the local version. */
 "api" | "local";
 
 export type DirtyCheckout = "ask" | "worktree";
@@ -147,37 +160,75 @@ export type EnvSource =
 /**  No capture available yet; children inherit Prism's own environment. */
 "inherited" | "cache" | "fresh";
 
-export type FileDiff = FileDiff_Serialize | FileDiff_Deserialize;
+export type FileHunks = FileHunks_Serialize | FileHunks_Deserialize;
 
-export type FileDiff_Deserialize = {
+export type FileHunks_Deserialize = {
+	path: string,
+	hunks: Hunk_Deserialize[],
+	/**
+	 *  One entry per line across all hunks, in order; `None` when the
+	 *  language isn't supported or the file is too large.
+	 */
+	highlights?: number[][] | null,
+};
+
+export type FileHunks_Serialize = {
+	path: string,
+	hunks: Hunk_Serialize[],
+	/**
+	 *  One entry per line across all hunks, in order; `None` when the
+	 *  language isn't supported or the file is too large.
+	 */
+	highlights: number[][] | null,
+};
+
+export type FileKind = "source" | "test" | 
+/**  Generated, lock or vendored; collapsed by default. */
+"generated";
+
+export type FileMeta = FileMeta_Serialize | FileMeta_Deserialize;
+
+export type FileMeta_Deserialize = {
 	path: string,
 	old_path?: string | null,
 	status: FileStatus,
 	binary: boolean,
 	additions: number,
 	deletions: number,
-	hunks: Hunk_Deserialize[],
-	/**
-	 *  The patch wasn't available (GitHub omits it for very large files);
-	 *  the local diff will fill it in.
-	 */
 	patch_missing: boolean,
+	kind: FileKind,
+	/**  A test listed right after the source file it covers. */
+	paired_test: boolean,
+	/**
+	 *  Rows the file body takes in each layout (hunk headers included), so
+	 *  the UI can reserve space before the hunks are loaded.
+	 */
+	unified_rows: number,
+	split_rows: number,
 };
 
-export type FileDiff_Serialize = {
+export type FileMeta_Serialize = {
 	path: string,
 	old_path: string | null,
 	status: FileStatus,
 	binary: boolean,
 	additions: number,
 	deletions: number,
-	hunks: Hunk_Serialize[],
-	/**
-	 *  The patch wasn't available (GitHub omits it for very large files);
-	 *  the local diff will fill it in.
-	 */
 	patch_missing: boolean,
+	kind: FileKind,
+	/**  A test listed right after the source file it covers. */
+	paired_test: boolean,
+	/**
+	 *  Rows the file body takes in each layout (hunk headers included), so
+	 *  the UI can reserve space before the hunks are loaded.
+	 */
+	unified_rows: number,
+	split_rows: number,
 };
+
+export type FilePanel = 
+/**  Sources followed by their tests, generated files last. */
+"review_order" | "tree";
 
 export type FileStatus = "added" | "deleted" | "modified" | "renamed" | "copied";
 
@@ -233,16 +284,34 @@ export type Hunk_Serialize = {
 
 export type LineKind = "context" | "add" | "del";
 
+export type NeedsYou = NeedsYou_Serialize | NeedsYou_Deserialize;
+
+export type NeedsYou_Deserialize = {
+	blocking: PrHit_Deserialize[],
+	rereview: PrHit_Deserialize[],
+	new: PrHit_Deserialize[],
+};
+
+export type NeedsYou_Serialize = {
+	blocking: PrHit_Serialize[],
+	rereview: PrHit_Serialize[],
+	new: PrHit_Serialize[],
+};
+
 export type PrCount = PrCount_Serialize | PrCount_Deserialize;
 
 export type PrCount_Deserialize = {
 	project_id: number,
+	/**  Sum over the visible repos; `None` if none were visible. */
 	open?: number | null,
+	by_repo: RepoCount[],
 };
 
 export type PrCount_Serialize = {
 	project_id: number,
+	/**  Sum over the visible repos; `None` if none were visible. */
 	open: number | null,
+	by_repo: RepoCount[],
 };
 
 export type PrDetail = PrDetail_Serialize | PrDetail_Deserialize;
@@ -329,14 +398,16 @@ export type PrView = PrView_Serialize | PrView_Deserialize;
 
 export type PrView_Deserialize = {
 	detail: PrDetail_Deserialize,
-	files: FileDiff_Deserialize[],
+	/**  In review order; fetch hunks with `pr_hunks`. */
+	files: FileMeta_Deserialize[],
 	source: DiffSource,
 	project_id?: number | null,
 };
 
 export type PrView_Serialize = {
 	detail: PrDetail_Serialize,
-	files: FileDiff_Serialize[],
+	/**  In review order; fetch hunks with `pr_hunks`. */
+	files: FileMeta_Serialize[],
 	source: DiffSource,
 	project_id: number | null,
 };
@@ -385,7 +456,8 @@ export type Project_Deserialize = {
 	id: number,
 	path: string,
 	name: string,
-	remote?: RemoteRepo | null,
+	/**  Forge repos among the project's remotes; the first is the primary. */
+	remotes: RemoteRepo[],
 	/**  `None` if the folder is missing or no longer a git repo. */
 	status?: ProjectStatus_Deserialize | null,
 };
@@ -394,7 +466,8 @@ export type Project_Serialize = {
 	id: number,
 	path: string,
 	name: string,
-	remote: RemoteRepo | null,
+	/**  Forge repos among the project's remotes; the first is the primary. */
+	remotes: RemoteRepo[],
 	/**  `None` if the folder is missing or no longer a git repo. */
 	status: ProjectStatus_Serialize | null,
 };
@@ -404,6 +477,60 @@ export type RemoteRepo = {
 	host: string,
 	owner: string,
 	repo: string,
+};
+
+export type RepoCount = {
+	owner: string,
+	repo: string,
+	open: number,
+};
+
+export type ReviewComment = ReviewComment_Serialize | ReviewComment_Deserialize;
+
+export type ReviewComment_Deserialize = {
+	id: string,
+	author?: string | null,
+	/**  Rendered and sanitized by GitHub. */
+	body_html: string,
+	created_at: string,
+	url: string,
+};
+
+export type ReviewComment_Serialize = {
+	id: string,
+	author: string | null,
+	/**  Rendered and sanitized by GitHub. */
+	body_html: string,
+	created_at: string,
+	url: string,
+};
+
+export type ReviewThread = ReviewThread_Serialize | ReviewThread_Deserialize;
+
+export type ReviewThread_Deserialize = {
+	id: string,
+	path: string,
+	/**  Line in the current diff; `None` when the thread is outdated. */
+	line?: number | null,
+	start_line?: number | null,
+	original_line?: number | null,
+	side: DiffSide,
+	resolved: boolean,
+	outdated: boolean,
+	comments: ReviewComment_Deserialize[],
+};
+
+export type ReviewThread_Serialize = {
+	id: string,
+	path: string,
+	/**  Line in the current diff; `None` when the thread is outdated. */
+	line: number | null,
+	start_line: number | null,
+	original_line: number | null,
+	side: DiffSide,
+	resolved: boolean,
+	outdated: boolean,
+	comments: ReviewComment_Serialize[],
 };
 
 export type SearchOutcome = SearchOutcome_Serialize | SearchOutcome_Deserialize;
@@ -474,11 +601,15 @@ export type UiSettings = UiSettings_Serialize | UiSettings_Deserialize;
 export type UiSettings_Deserialize = {
 	ui_font?: string,
 	code_font?: string,
+	diff_layout?: DiffLayout,
+	file_panel?: FilePanel,
 };
 
 export type UiSettings_Serialize = {
 	ui_font: string,
 	code_font: string,
+	diff_layout: DiffLayout,
+	file_panel: FilePanel,
 };
 
 /* Tauri Specta runtime */

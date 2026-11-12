@@ -41,7 +41,7 @@ impl Mirrors {
         if !path.join("HEAD").exists() {
             return false;
         }
-        has_commits(&Git::new(&path), base, head).await
+        has_commits(&path, base, head).await
     }
 
     /// Diff `base..head` for PR `number`, fetching whatever is missing.
@@ -54,7 +54,7 @@ impl Mirrors {
             init(&path, r).await?;
         }
         let git = Git::new(&path).with_token(r.token);
-        if !has_commits(&git, base, head).await {
+        if !has_commits(&path, base, head).await {
             git.run(["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--depth=1", "--filter=blob:none", "origin", head, base])
                 .await?;
             git.run(["update-ref", &format!("refs/prism/pull/{number}/head"), head]).await?;
@@ -69,7 +69,8 @@ impl Mirrors {
     }
 }
 
-async fn has_commits(git: &Git<'_>, base: &str, head: &str) -> bool {
+async fn has_commits(path: &Path, base: &str, head: &str) -> bool {
+    let git = Git::new(path).offline();
     let (head, base) = (format!("{head}^{{commit}}"), format!("{base}^{{commit}}"));
     let (a, b) = tokio::join!(git.succeeds(["cat-file", "-e", &head]), git.succeeds(["cat-file", "-e", &base]));
     a && b
@@ -129,6 +130,11 @@ mod live {
         assert_eq!(files.len(), 4);
         assert_eq!(files, again);
         assert!(mirrors.has_commits(&r, base, &head).await);
+        assert!(!mirrors.has_commits(&r, base, "0123456789abcdef0123456789abcdef01234567").await);
+        let objects = Git::new(&mirrors.path(&r)).run(["count-objects", "-v"]).await.unwrap();
+        println!("{objects}");
+        let shallow = std::fs::read_to_string(mirrors.path(&r).join("shallow")).unwrap();
+        assert_eq!(shallow.lines().count(), 2, "only the two PR commits are fetched");
         std::fs::remove_dir_all(root).unwrap();
     }
 }
