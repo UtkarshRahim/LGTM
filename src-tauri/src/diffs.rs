@@ -44,6 +44,9 @@ pub struct FileHunks {
     pub highlights: Option<Vec<LineSpans>>,
 }
 
+/// A file's path, status and the new-file line ranges its hunks show.
+pub type FileRanges = (String, FileStatus, Vec<(u32, u32)>);
+
 pub struct PrDiff {
     files: Vec<FileDiff>,
     kinds: Vec<FileKind>,
@@ -94,6 +97,17 @@ impl PrDiff {
                 patch_hash: f.patch_hash(),
                 unified_rows: f.hunks.iter().map(|h| 1 + h.lines.len() as u32).sum(),
                 split_rows: f.hunks.iter().map(split_rows).sum(),
+            })
+            .collect()
+    }
+
+    pub fn ranges(&self) -> Vec<FileRanges> {
+        self.files
+            .iter()
+            .map(|f| {
+                let ranges =
+                    f.hunks.iter().filter(|h| h.new_lines > 0).map(|h| (h.new_start, h.new_start + h.new_lines - 1)).collect();
+                (f.path.clone(), f.status, ranges)
             })
             .collect()
     }

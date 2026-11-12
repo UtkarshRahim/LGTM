@@ -72,7 +72,11 @@ try {
     } else if (cmd === "wait") await sleep(Number(arg));
     else if (cmd === "eval") console.log(`${arg} →`, JSON.stringify(await evaluate(arg)));
     else if (cmd === "key") {
-      for (const type of ["keyDown", "keyUp"]) await send("Input.dispatchKeyEvent", { type, key: arg, text: type === "keyDown" ? arg : undefined });
+      const named = { Enter: [13, "\r"], Escape: [27, undefined], ArrowDown: [40, undefined], ArrowUp: [38, undefined] }[arg];
+      const [code, text] = named ?? [undefined, arg];
+      for (const type of ["keyDown", "keyUp"]) {
+        await send("Input.dispatchKeyEvent", { type, key: arg, windowsVirtualKeyCode: code, text: type === "keyDown" ? text : undefined });
+      }
     } else if (cmd === "drag") {
       const [sel, dy] = arg.split(",");
       const r = await evaluate(`(() => { const b = document.querySelector(${JSON.stringify(sel)}).getBoundingClientRect(); return [b.x + b.width / 2, b.y + b.height / 2]; })()`);

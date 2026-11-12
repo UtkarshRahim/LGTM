@@ -40,6 +40,11 @@
   align-items: center;
 }
 
+.actions button[data-on="true"] {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
 .metaRow {
   display: flex;
   align-items: center;

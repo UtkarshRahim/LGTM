@@ -16,6 +16,8 @@ pub enum AppError {
     Settings { message: String },
     #[error("{message}")]
     Invalid { message: String },
+    #[error("{message}")]
+    Agent { message: String },
 }
 
 impl AppError {

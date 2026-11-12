@@ -8,14 +8,23 @@ import {
   type DiffScope,
   type DraftTarget,
   type FileMeta,
+  type Finding,
   type LocalReview,
   type PrRef,
   type PrView as View,
   type Project,
   type ReviewEvent,
   type ReviewThread,
+  type RunUpdate,
+  type Severity,
   type SinceReview,
+  type Skill,
+  type SkillState,
+  type SkillsView,
 } from "../ipc";
+import { SkillsPanel } from "../components/SkillsPanel";
+import { SkillPalette } from "../components/SkillPalette";
+import { currentFindings, findingDraft } from "../lib/findings";
 import type { ComposerValue } from "../components/Draft";
 import { ReviewSubmit } from "../components/ReviewSubmit";
 import { ErrorNotice } from "../components/ErrorNotice";
@@ -36,7 +45,19 @@ interface Props {
 }
 
 const NO_THREADS: ReviewThread[] = [];
+const NO_LOG: RunUpdate[] = [];
 const NO_REVIEW: LocalReview = { drafts: [], viewed: [] };
+const NO_SKILLS: SkillState = { runs: [], findings: [] };
+const SEVERITY_KEY = "prism.findingSeverities";
+const PANEL_KEY = "prism.skillsPanel";
+
+function savedSeverities(): Set<Severity> {
+  try {
+    const v = JSON.parse(localStorage.getItem(SEVERITY_KEY) ?? "null");
+    if (Array.isArray(v)) return new Set(v);
+  } catch {}
+  return new Set(["blocker", "warning"]);
+}
 
 /** `undefined` while checking; `null` if you haven't reviewed. */
 type Since = SinceReview | null | undefined | { error: string };
@@ -56,6 +77,13 @@ export function PrView({ pr, active, projects, layout, onLayout, onTitle, onSwit
   const [since, setSince] = useState<Since>(undefined);
   const [posted, setPosted] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [skillState, setSkillState] = useState<SkillState>(NO_SKILLS);
+  const [runLog, setRunLog] = useState<{ runId: number; updates: RunUpdate[] } | null>(null);
+  const [skillsView, setSkillsView] = useState<SkillsView | null>(null);
+  const [skillsError, setSkillsError] = useState<string | null>(null);
+  const [palette, setPalette] = useState(false);
+  const [panel, setPanel] = useState(() => localStorage.getItem(PANEL_KEY) === "1");
+  const [severities, setSeverities] = useState(savedSeverities);
   const diffRef = useRef<DiffViewHandle>(null);
   const started = useRef(0);
   const onTitleRef = useRef(onTitle);
@@ -72,6 +100,24 @@ export function PrView({ pr, active, projects, layout, onLayout, onTitle, onSwit
     if (r.status === "ok" && !r.data) setScope("all");
   }, [pr]);
 
+  const loadSkillState = useCallback(async () => {
+    const r = await commands.prSkillState(pr);
+    if (r.status === "error") return setActionError(`Couldn't load skill runs: ${errorText(r.error)}`);
+    setSkillState(r.data);
+    const live = r.data.runs[0];
+    if (live?.status === "running") {
+      const l = await commands.skillRunLog(live.id);
+      if (l.status === "ok") setRunLog((cur) => (cur?.runId === live.id ? cur : { runId: live.id, updates: l.data }));
+    }
+  }, [pr]);
+  const loadSkills = useCallback(async () => {
+    const r = await commands.listSkills(pr);
+    if (r.status === "ok") {
+      setSkillsView(r.data);
+      setSkillsError(null);
+    } else setSkillsError(errorText(r.error));
+  }, [pr]);
+
   const load = useCallback(async () => {
     started.current = performance.now();
     setError(null);
@@ -84,6 +130,7 @@ export function PrView({ pr, active, projects, layout, onLayout, onTitle, onSwit
     setView(r.data);
     onTitleRef.current(r.data.detail.summary.title);
     commands.prLocalReview(pr).then((l) => l.status === "ok" && setLocal(l.data));
+    loadSkillState();
     if (r.data.source === "api") {
       setLocalState("loading");
       const local = await commands.prSyncLocal(pr);
@@ -97,7 +144,7 @@ export function PrView({ pr, active, projects, layout, onLayout, onTitle, onSwit
       }
     }
     loadSince();
-  }, [pr, loadThreads, loadSince]);
+  }, [pr, loadThreads, loadSince, loadSkillState]);
 
   useEffect(() => {
     load();
@@ -118,6 +165,73 @@ export function PrView({ pr, active, projects, layout, onLayout, onTitle, onSwit
       un.then((f) => f());
     };
   }, [pr]);
+
+  useEffect(() => {
+    loadSkills();
+  }, [loadSkills]);
+
+  useEffect(() => {
+    const un = events.skillRunEvent.listen(({ payload: { run_id, pr: p, update } }) => {
+      if (p.host !== pr.host || p.owner !== pr.owner || p.repo !== pr.repo || p.number !== pr.number) return;
+      setRunLog((cur) =>
+        cur?.runId === run_id ? { runId: run_id, updates: [...cur.updates, update] } : { runId: run_id, updates: [update] },
+      );
+      if (update.kind === "finished") {
+        setSkillState((s) => ({
+          runs: s.runs.some((r) => r.id === run_id) ? s.runs.map((r) => (r.id === run_id ? update.run : r)) : [update.run, ...s.runs],
+          findings: [...s.findings.filter((f) => f.run_id !== run_id), ...update.findings],
+        }));
+      }
+    });
+    return () => {
+      un.then((f) => f());
+    };
+  }, [pr]);
+
+  const openPalette = useCallback(() => {
+    setPalette(true);
+    loadSkills();
+  }, [loadSkills]);
+  useEffect(() => {
+    if (!active) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "r" || !e.metaKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      openPalette();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [active, openPalette]);
+
+  const showPanel = useCallback((on: boolean) => {
+    setPanel(on);
+    localStorage.setItem(PANEL_KEY, on ? "1" : "0");
+  }, []);
+  const runSkill = useCallback(
+    async (skillId: string) => {
+      const r = await commands.runSkill(pr, skillId);
+      if (r.status === "error") {
+        setSkillsError(errorText(r.error));
+        return;
+      }
+      setPalette(false);
+      showPanel(true);
+      setRunLog((cur) => (cur?.runId === r.data.id ? cur : { runId: r.data.id, updates: [] }));
+      setSkillState((s) => (s.runs.some((x) => x.id === r.data.id) ? s : { ...s, runs: [r.data, ...s.runs] }));
+    },
+    [pr, showPanel],
+  );
+  const setPrefs = useCallback(
+    (pinned: string | null, agent: string) => {
+      setSkillsView((v) => v && { ...v, pinned, agent });
+      commands.setSkillPrefs(pinned, agent).then((r) => r.status === "error" && setSkillsError(errorText(r.error)));
+    },
+    [],
+  );
+  const onSeverities = useCallback((s: Set<Severity>) => {
+    setSeverities(s);
+    localStorage.setItem(SEVERITY_KEY, JSON.stringify([...s]));
+  }, []);
 
   const threadCounts = useMemo(() => {
     const m = new Map<string, number>();
@@ -167,10 +281,41 @@ export function PrView({ pr, active, projects, layout, onLayout, onTitle, onSwit
     setLocal((l) => ({ ...l, drafts: l.drafts.map((d) => (d.id === id ? { ...d, body: v.body, label: v.label } : d)) }));
     return null;
   }, []);
-  const onDeleteDraft = useCallback((id: number) => {
-    setLocal((l) => ({ ...l, drafts: l.drafts.filter((d) => d.id !== id) }));
-    commands.deleteDraft(id).then((r) => r.status === "error" && setActionError(errorText(r.error)));
+  const onDeleteDraft = useCallback(
+    (id: number) => {
+      setLocal((l) => ({ ...l, drafts: l.drafts.filter((d) => d.id !== id) }));
+      commands.deleteDraft(id).then((r) => {
+        if (r.status === "error") setActionError(errorText(r.error));
+        // Discarding an accepted finding's draft reopens the finding.
+        else if (skillState.findings.some((f) => f.status === "accepted")) loadSkillState();
+      });
+    },
+    [skillState.findings, loadSkillState],
+  );
+  const setFinding = useCallback((id: number, patch: Partial<Finding>) => {
+    setSkillState((s) => ({ ...s, findings: s.findings.map((f) => (f.id === id ? { ...f, ...patch } : f)) }));
   }, []);
+  const onAcceptFinding = useCallback(
+    async (f: Finding, value?: ComposerValue) => {
+      const d = findingDraft(f);
+      const r = await commands.acceptFinding(pr, f.id, headSha, d.target, value?.body ?? d.body, value ? value.label : d.label);
+      if (r.status === "error") {
+        setActionError(`Couldn't accept the finding: ${errorText(r.error)}`);
+        return errorText(r.error);
+      }
+      setLocal((l) => ({ ...l, drafts: [...l.drafts, r.data] }));
+      setFinding(f.id, { status: "accepted" });
+      return null;
+    },
+    [pr, headSha, setFinding],
+  );
+  const onDismissFinding = useCallback(
+    (f: Finding, reason: string | null) => {
+      setFinding(f.id, { status: reason == null ? "open" : "dismissed", dismiss_reason: reason });
+      commands.dismissFinding(f.id, reason).then((r) => r.status === "error" && setActionError(errorText(r.error)));
+    },
+    [setFinding],
+  );
   const onResolve = useCallback(
     async (th: ReviewThread, resolved: boolean) => {
       const r = await commands.setThreadResolved(pr, th.id, resolved);
@@ -193,6 +338,16 @@ export function PrView({ pr, active, projects, layout, onLayout, onTitle, onSwit
     [pr, headSha, loadThreads, loadSince],
   );
   const pick = useCallback((fi: number) => diffRef.current?.scrollToFile(fi), []);
+
+  const found = useMemo(() => currentFindings(skillState.runs, skillState.findings, headSha), [skillState, headSha]);
+  const inlineFindings = useMemo(
+    () => found.current.filter((f) => f.status === "open" && severities.has(f.severity)),
+    [found, severities],
+  );
+  const runSkills = useMemo(() => new Map(skillState.runs.map((r) => [r.id, r.skill_name || r.skill])), [skillState.runs]);
+  const running = skillState.runs[0]?.status === "running";
+  const openCount = found.current.filter((f) => f.status === "open").length;
+  const pinnedName = skillsView?.skills.find((s) => s.id === skillsView.pinned)?.name ?? null;
 
   if (error) {
     return (
@@ -218,6 +373,14 @@ export function PrView({ pr, active, projects, layout, onLayout, onTitle, onSwit
           <div className={styles.actions}>
             <button className="btn ghost" onClick={() => openUrl(d.summary.url)}>
               GitHub ↗
+            </button>
+            <button
+              className="btn ghost"
+              data-on={panel}
+              onClick={() => showPanel(!panel)}
+              title="Review skills (⌘R to run one)"
+            >
+              Skills{running ? " ·  running" : openCount > 0 ? ` · ${openCount}` : ""}
             </button>
             {project && <CheckoutButton project={project} pr={pr} />}
             <ReviewSubmit pending={submittable} stale={local.drafts.length - submittable} onSubmit={onSubmit} />
@@ -336,8 +499,45 @@ export function PrView({ pr, active, projects, layout, onLayout, onTitle, onSwit
           onUpdateDraft={onUpdateDraft}
           onDeleteDraft={onDeleteDraft}
           onResolve={onResolve}
+          findings={inlineFindings}
+          runSkills={runSkills}
+          onAcceptFinding={onAcceptFinding}
+          onDismissFinding={onDismissFinding}
         />
+        {panel && (
+          <SkillsPanel
+            runs={skillState.runs}
+            headSha={headSha}
+            findings={found.current}
+            stale={found.stale}
+            staleRuns={found.staleRuns}
+            log={runLog && runLog.runId === skillState.runs[0]?.id ? runLog.updates : NO_LOG}
+            severities={severities}
+            onSeverities={onSeverities}
+            pinnedName={pinnedName}
+            onOpenPalette={openPalette}
+            onRerun={runSkill}
+            onCancel={(id) => commands.cancelSkillRun(id)}
+            onFocus={(f) => {
+              if (!severities.has(f.severity)) onSeverities(new Set([...severities, f.severity]));
+              requestAnimationFrame(() => diffRef.current?.focusFinding(f.id));
+            }}
+            onRestore={(f) => onDismissFinding(f, null)}
+            onClose={() => showPanel(false)}
+          />
+        )}
       </div>
+      {palette && (
+        <SkillPalette
+          view={skillsView}
+          error={skillsError}
+          busy={running}
+          onRun={(s: Skill) => runSkill(s.id)}
+          onPin={(id) => skillsView && setPrefs(id, skillsView.agent)}
+          onAgent={(id) => skillsView && setPrefs(skillsView.pinned, id)}
+          onClose={() => setPalette(false)}
+        />
+      )}
     </div>
   );
 }

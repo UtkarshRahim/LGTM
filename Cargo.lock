@@ -3007,6 +3007,15 @@ dependencies = [
 [[package]]
 name = "prism-agent"
 version = "0.1.0"
+dependencies = [
+ "prism-env",
+ "serde",
+ "serde_json",
+ "specta",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "prism-env"
@@ -3050,6 +3059,12 @@ dependencies = [
 [[package]]
 name = "prism-skills"
 version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "specta",
+ "tempfile",
+]
 
 [[package]]
 name = "prism-store"

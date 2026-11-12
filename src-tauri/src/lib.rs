@@ -5,6 +5,7 @@ mod error;
 mod projects;
 mod prs;
 mod review;
+mod skills;
 mod state;
 
 use std::collections::HashMap;
@@ -50,9 +51,17 @@ fn specta_builder() -> Builder<tauri::Wry> {
             review::submit_review,
             review::set_thread_resolved,
             review::pr_since_review,
+            skills::list_skills,
+            skills::set_skill_prefs,
+            skills::pr_skill_state,
+            skills::skill_run_log,
+            skills::run_skill,
+            skills::cancel_skill_run,
+            skills::accept_finding,
+            skills::dismiss_finding,
         ])
         .constant("HIGHLIGHT_CLASSES", prism_syntax::CLASSES)
-        .events(collect_events![projects::ProjectStatusChanged, prs::PrUpdated])
+        .events(collect_events![projects::ProjectStatusChanged, prs::PrUpdated, skills::SkillRunEvent])
 }
 
 fn export_bindings(builder: &Builder<tauri::Wry>) {
@@ -81,6 +90,7 @@ pub fn run() {
             let db_path = data_dir.join("prism.db");
             let settings_path = paths.app_config_dir()?.join("settings.toml");
             let db = Db::open(&db_path)?;
+            db.fail_unfinished_runs()?;
             let settings = Settings::load_or_init(&settings_path)?;
             tracing::info!(db = %db_path.display(), settings = %settings_path.display(), "store ready");
             app.manage(AppState {
@@ -93,6 +103,7 @@ pub fn run() {
                 creds: tokio::sync::RwLock::new(None),
                 watchers: Mutex::new(HashMap::new()),
                 diffs: Default::default(),
+                runs: Default::default(),
             });
 
             let handle = app.handle().clone();

@@ -20,6 +20,7 @@ pub struct AppState {
     pub creds: tokio::sync::RwLock<Option<Vec<Credential>>>,
     pub watchers: Mutex<HashMap<i32, ProjectWatcher>>,
     pub diffs: DiffCache,
+    pub runs: crate::skills::Runs,
 }
 
 impl AppState {

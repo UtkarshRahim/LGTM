@@ -1,0 +1,125 @@
+.card {
+  margin: 4px 12px 6px 104px;
+  max-width: 760px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--nit-fg);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-family: var(--font-ui);
+  font-size: var(--text-md);
+  line-height: 1.5;
+  white-space: normal;
+}
+
+.card[data-severity="blocker"] {
+  border-left-color: var(--blocker-fg);
+}
+
+.card[data-severity="warning"] {
+  border-left-color: var(--warning-fg);
+}
+
+.card[data-focused="true"] {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px 0;
+  font-size: var(--text-sm);
+}
+
+.severity {
+  flex: none;
+  font-size: 11px;
+  padding: 0 6px;
+  border-radius: 8px;
+  text-transform: capitalize;
+  background: var(--nit-bg);
+  color: var(--nit-fg);
+}
+
+.severity[data-severity="blocker"] {
+  background: var(--blocker-bg);
+  color: var(--blocker-fg);
+}
+
+.severity[data-severity="warning"] {
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+}
+
+.title {
+  font-weight: 600;
+  font-size: var(--text-md);
+  user-select: text;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.skill {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.body {
+  padding: 4px 12px 2px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  cursor: text;
+}
+
+.suggestion {
+  margin: 6px 12px 0;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: var(--add-bg);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre;
+  overflow-x: auto;
+  user-select: text;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  font-size: var(--text-sm);
+}
+
+.reason {
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.reason:hover {
+  border-color: var(--accent);
+}
+
+.link {
+  border: 0;
+  background: none;
+  padding: 0 2px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.link:hover {
+  color: var(--text);
+}

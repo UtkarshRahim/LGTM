@@ -48,7 +48,12 @@ pub struct GithubSettings {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(default)]
 pub struct SkillSettings {
+    /// Personal skill folders; `~` is the home directory.
     pub dirs: Vec<String>,
+    /// Skill id preselected in the palette.
+    pub pinned: Option<String>,
+    /// Agent id skills run with.
+    pub agent: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize, specta::Type)]
@@ -88,7 +93,11 @@ impl Default for UiSettings {
 
 impl Default for SkillSettings {
     fn default() -> Self {
-        Self { dirs: vec!["~/.claude/skills".into()] }
+        Self {
+            dirs: vec!["~/.claude/skills".into(), "~/.cursor/skills".into(), "~/.agents/skills".into()],
+            pinned: None,
+            agent: "cursor".into(),
+        }
     }
 }
 
@@ -126,7 +135,10 @@ mod tests {
         let s: Settings = toml::from_str("[ui]\ncode_font = \"Fira Code\"\n").unwrap();
         assert_eq!(s.ui.code_font, "Fira Code");
         assert_eq!(s.ui.ui_font, "Inter");
-        assert_eq!(s.skills.dirs, vec!["~/.claude/skills"]);
+        assert_eq!(s.skills.dirs[0], "~/.claude/skills");
+        assert_eq!(s.skills.agent, "cursor");
+        let s: Settings = toml::from_str("[skills]\ndirs = [\"~/x\"]\n").unwrap();
+        assert_eq!((s.skills.dirs.len(), s.skills.agent.as_str()), (1, "cursor"));
     }
 
     #[test]

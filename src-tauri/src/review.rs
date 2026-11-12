@@ -28,7 +28,7 @@ pub enum CommentLabel {
 }
 
 impl CommentLabel {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Praise => "praise",
             Self::Nit => "nit",
@@ -100,7 +100,7 @@ fn parse_side(s: &str) -> DiffSide {
     if s == "LEFT" { DiffSide::Left } else { DiffSide::Right }
 }
 
-fn to_stored(t: &DraftTarget) -> StoredTarget {
+pub(crate) fn to_stored(t: &DraftTarget) -> StoredTarget {
     match t {
         DraftTarget::Reply { thread_id } => StoredTarget::Reply { thread_id: thread_id.clone() },
         DraftTarget::Line { path, line, side, start_line, start_side } => StoredTarget::Line {
@@ -186,7 +186,7 @@ pub async fn update_draft(state: State<'_, AppState>, id: i32, body: String, lab
 #[tauri::command]
 #[specta::specta]
 pub async fn delete_draft(state: State<'_, AppState>, id: i32) -> AppResult<()> {
-    Ok(state.db.delete_drafts(&[id.into()])?)
+    Ok(state.db.discard_draft(id.into())?)
 }
 
 /// Marks a file viewed at its current patch hash, or clears the mark.
@@ -346,6 +346,7 @@ mod tests {
             creds: tokio::sync::RwLock::new(None),
             watchers: Mutex::new(Default::default()),
             diffs: Default::default(),
+            runs: Default::default(),
         };
         state.credentials().await;
         let gh = state.client(&pr.host).await.unwrap();

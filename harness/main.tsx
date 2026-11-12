@@ -3,10 +3,11 @@
 import { StrictMode, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
+import { emit } from "@tauri-apps/api/event";
 import "@fontsource-variable/inter";
 import "@fontsource-variable/jetbrains-mono";
 import "../src/styles/global.css";
-import type { DiffLayout, Draft, FileHunks, LocalReview, PrRef, PrView as View, ReviewThread } from "../src/ipc";
+import type { DiffLayout, Draft, FileHunks, Finding, LocalReview, PrRef, PrView as View, ReviewThread, Run, RunUpdate, Severity } from "../src/ipc";
 import { PrView } from "../src/views/PrView";
 import { Home } from "../src/views/Home";
 import { Sidebar } from "../src/components/Sidebar";
@@ -35,6 +36,112 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const reviewed = params.get("reviewed");
 const local: LocalReview = { drafts: [], viewed: [] };
 let nextDraft = 1;
+
+// Skills: `?skills=done` starts with a finished run, `?skills=stale` with one on an older head.
+const SKILLS = [
+  { id: "repo:review", name: "review", description: "General review of correctness and design", source: "repo", dir: "/tmp/r" },
+  { id: "personal:bug-hunt", name: "bug-hunt", description: "Find correctness bugs and unhandled errors", source: "personal", dir: "/tmp/b" },
+  { id: "personal:security", name: "security", description: "Look for injection, auth and secrets issues", source: "personal", dir: "/tmp/s" },
+];
+const AGENTS = [
+  { id: "cursor", name: "Cursor", available: true },
+  { id: "claude", name: "Claude Code", available: false },
+];
+let prefs = { pinned: "personal:bug-hunt" as string | null, agent: "cursor" };
+const runs: Run[] = [];
+let findings: Finding[] = [];
+let nextRun = 1;
+let nextFinding = 1;
+const draftFinding = new Map<number, number>();
+const now = () => Math.floor(Date.now() / 1000);
+
+function fakeFindings(runId: number, head: string): Finding[] {
+  const sev: Severity[] = ["blocker", "warning", "nit", "warning"];
+  const out: Finding[] = [];
+  for (const h of fx.hunks.slice(0, 4)) {
+    const add = h.hunks.flatMap((x) => x.lines).find((l) => l.kind === "add" && l.new != null);
+    if (!add) continue;
+    const i = out.length;
+    out.push({
+      id: nextFinding++,
+      run_id: runId,
+      head_sha: head,
+      path: h.path,
+      line: add.new,
+      end_line: null,
+      severity: sev[i % sev.length],
+      title: ["Error from the request is dropped", "Loop never exits when the list is empty", "Prefer a named constant", "Missing test for the new branch"][i],
+      body: "The new code path ignores this case, so callers see a silent failure.\nHandle it or document why it can't happen.",
+      suggestion: i === 1 ? add.text.replace(/\s+$/, "") + " // fixed" : null,
+      status: "open",
+      dismiss_reason: null,
+    });
+  }
+  const last = fx.hunks[0];
+  const maxLine = Math.max(...last.hunks.map((x) => x.new_start + x.new_lines));
+  out.push({
+    id: nextFinding++,
+    run_id: runId,
+    head_sha: head,
+    path: last.path,
+    line: maxLine + 40,
+    end_line: maxLine + 44,
+    severity: "warning",
+    title: "Caller further down still uses the old signature",
+    body: "This function's callers outside the diff weren't updated.",
+    suggestion: null,
+    status: "open",
+    dismiss_reason: null,
+  });
+  return out;
+}
+
+function startRun(skillId: string, head: string, finishNow: boolean): Run {
+  const skill = SKILLS.find((s) => s.id === skillId)!;
+  const run: Run = {
+    id: nextRun++,
+    skill: skill.id,
+    skill_name: skill.name,
+    agent: "cursor",
+    head_sha: head,
+    status: "running",
+    error: null,
+    started_at: now(),
+    ended_at: null,
+  };
+  runs.unshift(run);
+  const finish = () => {
+    const fs = fakeFindings(run.id, head);
+    findings = [...findings, ...fs];
+    Object.assign(run, { status: "done", ended_at: now() });
+    return fs;
+  };
+  if (finishNow) {
+    finish();
+    return run;
+  }
+  const send = (update: RunUpdate) => emit("skill-run-event", { run_id: run.id, pr: fx.pr, update });
+  const script: [number, RunUpdate][] = [
+    [100, { kind: "step", text: "Preparing a checkout of the PR head", warning: false }],
+    [400, { kind: "step", text: "Starting Cursor", warning: false }],
+    [700, { kind: "step", text: "Using Cursor's Ask mode (read-only)", warning: false }],
+    [800, { kind: "step", text: `Running ${skill.name}`, warning: false }],
+    [1100, { kind: "agent", event: { kind: "tool", id: "t1", title: "Read .prism/pr.diff", tool: "read", status: "completed" } }],
+    [1400, { kind: "agent", event: { kind: "tool", id: "t2", title: `Read ${fx.hunks[0].path}`, tool: "read", status: "completed" } }],
+    [1700, { kind: "agent", event: { kind: "denied", title: "`go test ./...`", tool: "execute" } }],
+    [2000, { kind: "agent", event: { kind: "tool", id: "t3", title: "grep \"func New\"", tool: "search", status: "completed" } }],
+  ];
+  for (const [ms, u] of script) setTimeout(() => run.status === "running" && send(u), ms);
+  setTimeout(() => {
+    if (run.status !== "running") return;
+    const fs = finish();
+    send({ kind: "step", text: `${fs.length} findings`, warning: false });
+    send({ kind: "finished", run: { ...run }, findings: structuredClone(fs) });
+  }, Number(params.get("runms") ?? 2600));
+  return run;
+}
+if (params.get("skills") === "done") startRun("personal:bug-hunt", fx.view.detail.head_sha, true);
+if (params.get("skills") === "stale") startRun("repo:review", "0123456789abcdef0123456789abcdef01234567", true);
 
 mockWindows("main");
 mockIPC(
@@ -79,6 +186,7 @@ mockIPC(
         return null;
       case "delete_draft":
         local.drafts = local.drafts.filter((d) => d.id !== a.id);
+        findings = findings.map((f) => (f.id === draftFinding.get(a.id as number) ? { ...f, status: "open" } : f));
         return null;
       case "set_viewed":
         local.viewed = local.viewed.filter((v) => v.path !== a.path);
@@ -101,6 +209,39 @@ mockIPC(
           rewritten: true,
           files: fx.view.files.filter((_, i) => i % 2 === 0),
         };
+      case "list_skills":
+        await sleep(80);
+        return { skills: SKILLS, agents: AGENTS, ...prefs };
+      case "set_skill_prefs":
+        prefs = { pinned: a.pinned as string | null, agent: a.agent as string };
+        return null;
+      case "pr_skill_state":
+        return structuredClone({ runs, findings });
+      case "skill_run_log":
+        return [];
+      case "run_skill":
+        if (runs[0]?.status === "running") throw { kind: "invalid", message: "A skill is already running on this pull request" };
+        return { ...startRun(a.skillId as string, fx.view.detail.head_sha, false) };
+      case "cancel_skill_run": {
+        const run = runs.find((r) => r.id === a.runId);
+        if (run?.status === "running") {
+          Object.assign(run, { status: "cancelled", ended_at: now() });
+          emit("skill-run-event", { run_id: run.id, pr: fx.pr, update: { kind: "finished", run: { ...run }, findings: [] } });
+        }
+        return null;
+      }
+      case "accept_finding": {
+        const d = { id: nextDraft++, target: a.target, body: a.body, label: a.label, head_sha: a.headSha } as Draft;
+        local.drafts = [...local.drafts, d];
+        draftFinding.set(d.id, a.findingId as number);
+        findings = findings.map((f) => (f.id === a.findingId ? { ...f, status: "accepted" } : f));
+        return d;
+      }
+      case "dismiss_finding":
+        findings = findings.map((f) =>
+          f.id === a.findingId ? { ...f, status: a.reason == null ? "open" : "dismissed", dismiss_reason: a.reason as string | null } : f,
+        );
+        return null;
       default:
         throw new Error(`harness: unmocked command ${cmd}`);
     }

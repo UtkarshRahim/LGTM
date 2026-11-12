@@ -19,9 +19,12 @@ import {
   type Draft,
   type DraftTarget,
   type FileMeta,
+  type Finding,
   type PrRef,
   type ReviewThread,
 } from "../ipc";
+import { DISMISS_REASONS, findingDraft, findingLine, findingText } from "../lib/findings";
+import { FindingCard } from "./Finding";
 import { errorText } from "../lib/errors";
 import { highlighted } from "../lib/highlight";
 import {
@@ -44,6 +47,7 @@ import styles from "./DiffView.module.css";
 
 export interface DiffViewHandle {
   scrollToFile: (fi: number) => void;
+  focusFinding: (id: number) => void;
 }
 
 interface Props {
@@ -68,12 +72,20 @@ interface Props {
   onUpdateDraft: (id: number, value: ComposerValue) => Promise<string | null>;
   onDeleteDraft: (id: number) => void;
   onResolve: (thread: ReviewThread, resolved: boolean) => Promise<void>;
+  /** Open findings for this head that pass the severity filter. */
+  findings: Finding[];
+  /** Skill name by run id. */
+  runSkills: Map<number, string>;
+  /** Returns an error message, or null once the finding is a draft. */
+  onAcceptFinding: (f: Finding, value?: ComposerValue) => Promise<string | null>;
+  onDismissFinding: (f: Finding, reason: string) => void;
 }
 
 type ComposerTarget =
   | { mode: "new"; path: string; anchor: Anchor; start: number | null }
   | { mode: "edit"; id: number }
-  | { mode: "reply"; threadId: string };
+  | { mode: "reply"; threadId: string }
+  | { mode: "finding"; id: number };
 
 interface ComposerState {
   target: ComposerTarget;
@@ -103,6 +115,7 @@ const STATUS_LABEL: Record<FileMeta["status"], string> = {
 export function DiffView(props: Props) {
   const { ref, pr, files, layout, syncing, scope, headSha, threads, drafts, viewed, active } = props;
   const { onCurrentFile, onToggleLayout, onViewed, onAddDraft, onUpdateDraft, onDeleteDraft, onResolve } = props;
+  const { findings, runSkills, onAcceptFinding, onDismissFinding } = props;
   const rightOnly = scope === "since";
   const [store, setStore] = useState<Store>(() => ({ files, loaded: new Map(), failed: new Map() }));
   // Hunks belong to one file list; a new list (GitHub patches → local) starts over.
@@ -167,23 +180,49 @@ export function DiffView(props: Props) {
   }, [drafts]);
   const composeNew = composer?.target.mode === "new" ? composer.target : null;
 
+  const [focused, setFocused] = useState<number | null>(null);
+  const [dismissing, setDismissing] = useState<number | null>(null);
+  const pathIndex = useMemo(() => new Map(files.map((f, i) => [f.path, i])), [files]);
+  const { findingsByPath, findingById, findingOrder } = useMemo(() => {
+    const findingsByPath = new Map<string, Finding[]>();
+    for (const f of findings) findingsByPath.set(f.path, [...(findingsByPath.get(f.path) ?? []), f]);
+    const findingOrder = findings
+      .filter((f) => pathIndex.has(f.path))
+      .sort((a, b) => pathIndex.get(a.path)! - pathIndex.get(b.path)! || (findingLine(a) ?? 0) - (findingLine(b) ?? 0));
+    return { findingsByPath, findingById: new Map(findings.map((f) => [f.id, f])), findingOrder };
+  }, [findings, pathIndex]);
+
   const rowCache = useRef(new Map<string, { deps: unknown[]; rows: Row[] }>());
   const { rows, fileRow, hunkRows } = useMemo(() => {
     const perFile = files.map((meta, fi) => {
       const prep = current.loaded.get(meta.path);
       const ths = threadsByPath.get(meta.path) ?? NO_THREADS;
       const ds = draftsByPath.get(meta.path) ?? NO_DRAFTS;
+      const fs = findingsByPath.get(meta.path) ?? NO_FINDINGS;
       const collapsed = isCollapsed(meta);
       const compose = composeNew?.path === meta.path ? composeNew.anchor : null;
-      const deps = [meta, fi, prep, layout, collapsed, ths, ds, compose, headSha, rightOnly, syncing];
+      const deps = [meta, fi, prep, layout, collapsed, ths, ds, fs, compose, headSha, rightOnly, syncing];
       const hit = rowCache.current.get(meta.path);
       if (hit && hit.deps.every((d, i) => d === deps[i])) return hit.rows;
-      const rows = fileRows({ fi, meta, prep, layout, collapsed, threads: ths, drafts: ds, headSha, compose, rightOnly, syncing });
+      const rows = fileRows({
+        fi,
+        meta,
+        prep,
+        layout,
+        collapsed,
+        threads: ths,
+        drafts: ds,
+        findings: fs,
+        headSha,
+        compose,
+        rightOnly,
+        syncing,
+      });
       rowCache.current.set(meta.path, { deps, rows });
       return rows;
     });
     return buildLayout(perFile);
-  }, [files, current.loaded, threadsByPath, draftsByPath, isCollapsed, composeNew, headSha, rightOnly, layout, syncing]);
+  }, [files, current.loaded, threadsByPath, draftsByPath, findingsByPath, isCollapsed, composeNew, headSha, rightOnly, layout, syncing]);
 
   const cols = useMemo(() => {
     let c = 40;
@@ -285,7 +324,80 @@ export function DiffView(props: Props) {
     },
     [fileRow, scrollToRow],
   );
-  useImperativeHandle(ref, () => ({ scrollToFile }), [scrollToFile]);
+
+  // Focusing a finding expands its file, scrolls to it, and keeps trying
+  // while the file's hunks load.
+  const pendingFocus = useRef<{ id: number; scrolledToFile: boolean } | null>(null);
+  const [focusTick, setFocusTick] = useState(0);
+  const focusFinding = useCallback(
+    (id: number) => {
+      const f = findingById.get(id);
+      const fi = f && pathIndex.get(f.path);
+      if (!f || fi == null) return;
+      if (isCollapsed(files[fi])) toggle(setToggled, f.path);
+      setFocused(id);
+      setDismissing(null);
+      pendingFocus.current = { id, scrolledToFile: false };
+      setFocusTick((t) => t + 1);
+    },
+    [findingById, pathIndex, isCollapsed, files],
+  );
+  useEffect(() => {
+    const p = pendingFocus.current;
+    if (!p) return;
+    const i = rows.findIndex((r) => (r.t === "finding" && r.id === p.id) || (r.t === "offdiff" && r.ids.includes(p.id)));
+    if (i !== -1) {
+      pendingFocus.current = null;
+      requestAnimationFrame(() => scrollToRow(i, FILE_H + 60));
+      return;
+    }
+    const f = findingById.get(p.id);
+    const fi = f && pathIndex.get(f.path);
+    if (fi == null) {
+      pendingFocus.current = null;
+    } else if (!p.scrolledToFile) {
+      p.scrolledToFile = true;
+      scrollToFile(fi);
+    }
+  }, [rows, focusTick, findingById, pathIndex, scrollToFile, scrollToRow]);
+  useImperativeHandle(ref, () => ({ scrollToFile, focusFinding }), [scrollToFile, focusFinding]);
+
+  const placedFindings = useMemo(() => new Set(rows.flatMap((r) => (r.t === "finding" ? [r.id] : []))), [rows]);
+  // Navigation follows the screen: a loaded file lists its off-diff findings first.
+  const findingNav = useMemo(() => {
+    const key = (f: Finding) => (current.loaded.has(f.path) && !placedFindings.has(f.id) ? -1 : (findingLine(f) ?? -1));
+    return [...findingOrder].sort((a, b) => pathIndex.get(a.path)! - pathIndex.get(b.path)! || key(a) - key(b));
+  }, [findingOrder, placedFindings, current.loaded, pathIndex]);
+  /** Moves focus past a finding that's about to leave the list. */
+  const focusAfter = useCallback(
+    (id: number) => {
+      const i = findingNav.findIndex((f) => f.id === id);
+      const next = findingNav[i + 1] ?? findingNav[i - 1];
+      setFocused(next && next.id !== id ? next.id : null);
+      setDismissing(null);
+    },
+    [findingNav],
+  );
+  const acceptFinding = useCallback(
+    async (f: Finding) => {
+      focusAfter(f.id);
+      const err = await onAcceptFinding(f);
+      if (err) setFocused(f.id);
+    },
+    [focusAfter, onAcceptFinding],
+  );
+  const dismissFinding = useCallback(
+    (f: Finding, reason: string) => {
+      focusAfter(f.id);
+      onDismissFinding(f, reason);
+    },
+    [focusAfter, onDismissFinding],
+  );
+  const editFinding = useCallback((f: Finding) => {
+    const d = findingDraft(f);
+    setFocused(f.id);
+    setComposer({ target: { mode: "finding", id: f.id }, value: { body: d.body, label: d.label }, saving: false, error: null });
+  }, []);
 
   // Keep the current file in view when the layout changes.
   const prevLayout = useRef(layout);
@@ -324,7 +436,10 @@ export function DiffView(props: Props) {
     setComposer({ ...c, saving: true, error: null });
     let err: string | null;
     if (c.target.mode === "edit") err = await onUpdateDraft(c.target.id, c.value);
-    else {
+    else if (c.target.mode === "finding") {
+      const f = findingById.get(c.target.id);
+      err = f ? await onAcceptFinding(f, c.value) : "This finding is gone";
+    } else {
       const target: DraftTarget =
         c.target.mode === "reply"
           ? { kind: "reply", thread_id: c.target.threadId }
@@ -339,7 +454,7 @@ export function DiffView(props: Props) {
       err = await onAddDraft(target, c.value);
     }
     setComposer((now) => (now?.target !== c.target ? now : err ? { ...now, saving: false, error: err } : null));
-  }, [composer, onAddDraft, onUpdateDraft]);
+  }, [composer, onAddDraft, onUpdateDraft, onAcceptFinding, findingById]);
   const cancel = useCallback(() => setComposer(null), []);
   const editDraft = useCallback(
     (d: Draft) => setComposer({ target: { mode: "edit", id: d.id }, value: { body: d.body, label: d.label }, saving: false, error: null }),
@@ -383,7 +498,41 @@ export function DiffView(props: Props) {
       if ((e.target as HTMLElement | null)?.closest("input, textarea, [contenteditable]")) return;
       const top = (v.scrollOffset ?? 0) + 1;
       const fi = currentRef.current;
+      const focusedF = focused == null ? undefined : findingById.get(focused);
+      if (dismissing != null && focusedF) {
+        const reason = DISMISS_REASONS[Number(e.key) - 1];
+        if (reason) dismissFinding(focusedF, reason);
+        else if (e.key === "Escape") setDismissing(null);
+        else return;
+        e.preventDefault();
+        return;
+      }
       switch (e.key) {
+        case "]":
+        case "[": {
+          if (findingNav.length === 0) return;
+          const i = findingNav.findIndex((f) => f.id === focused);
+          let next: Finding | undefined;
+          if (i === -1) {
+            next =
+              e.key === "]"
+                ? (findingNav.find((f) => pathIndex.get(f.path)! >= fi) ?? findingNav[0])
+                : (findingNav.findLast((f) => pathIndex.get(f.path)! <= fi) ?? findingNav.at(-1));
+          } else {
+            const n = findingNav.length;
+            next = findingNav[(i + (e.key === "]" ? 1 : n - 1)) % n];
+          }
+          if (next) focusFinding(next.id);
+          break;
+        }
+        case "a":
+          if (!focusedF || !placedFindings.has(focusedF.id)) return;
+          acceptFinding(focusedF);
+          break;
+        case "d":
+          if (!focusedF) return;
+          setDismissing(focusedF.id);
+          break;
         case "j":
           scrollToFile(fi + 1);
           break;
@@ -431,7 +580,29 @@ export function DiffView(props: Props) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [active, v, files, fileRow, hunkRows, startOf, scrollToFile, scrollToRow, onToggleLayout, viewed, setViewed, openNew]);
+  }, [
+    active,
+    v,
+    files,
+    fileRow,
+    hunkRows,
+    startOf,
+    scrollToFile,
+    scrollToRow,
+    onToggleLayout,
+    viewed,
+    setViewed,
+    openNew,
+    focused,
+    dismissing,
+    findingById,
+    findingNav,
+    pathIndex,
+    placedFindings,
+    focusFinding,
+    acceptFinding,
+    dismissFinding,
+  ]);
 
   const header = (fi: number) => {
     const meta = files[fi];
@@ -535,6 +706,28 @@ export function DiffView(props: Props) {
           </div>
         );
       }
+      case "finding": {
+        const f = findingById.get(r.id);
+        if (!f) return null;
+        const editing = composer?.target.mode === "finding" && composer.target.id === f.id;
+        return (
+          <div className={styles.threadRow}>
+            {editing ? composerFor(`Accept ${rangeTitle(f.end_line != null ? f.line : null, findingLine(f) ?? 0).toLowerCase()}`, null, "Add to review") : findingEl(f)}
+          </div>
+        );
+      }
+      case "offdiff":
+        return (
+          <div className={styles.threadRow}>
+            <div className={styles.staleNote}>
+              {r.ids.length === 1 ? "A finding is" : `${r.ids.length} findings are`} on lines outside this diff
+            </div>
+            {r.ids.map((id) => {
+              const f = findingById.get(id);
+              return f ? <div key={id}>{findingEl(f, true)}</div> : null;
+            })}
+          </div>
+        );
       case "outdated": {
         const key = `outdated:${meta.path}`;
         const open = flipped.has(key);
@@ -553,6 +746,26 @@ export function DiffView(props: Props) {
       }
     }
   };
+
+  function findingEl(f: Finding, offDiff = false) {
+    return (
+      <FindingCard
+        finding={f}
+        skill={runSkills.get(f.run_id)}
+        focused={focused === f.id}
+        offDiff={offDiff}
+        dismissing={dismissing === f.id}
+        onDismissing={(open) => {
+          setFocused(f.id);
+          setDismissing(open ? f.id : null);
+        }}
+        onAccept={() => acceptFinding(f)}
+        onEdit={() => editFinding(f)}
+        onCopy={() => navigator.clipboard.writeText(findingText(f))}
+        onDismiss={(reason) => dismissFinding(f, reason)}
+      />
+    );
+  }
 
   function threadEl(th: ReviewThread) {
     const replying = composer?.target.mode === "reply" && composer.target.threadId === th.id;
@@ -622,6 +835,7 @@ export function DiffView(props: Props) {
 
 const NO_THREADS: ReviewThread[] = [];
 const NO_DRAFTS: LineDraft[] = [];
+const NO_FINDINGS: Finding[] = [];
 const EMPTY: ComposerValue = { body: "", label: null };
 
 function parseAnchor(el: HTMLElement): { fi: number; anchor: Anchor } | null {

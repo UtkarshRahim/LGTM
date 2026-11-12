@@ -334,6 +334,7 @@ mod tests {
             creds: tokio::sync::RwLock::new(None),
             watchers: Mutex::new(Default::default()),
             diffs: Default::default(),
+            runs: Default::default(),
         };
         state.credentials().await;
 
@@ -382,6 +383,7 @@ mod tests {
             creds: tokio::sync::RwLock::new(None),
             watchers: Mutex::new(Default::default()),
             diffs: Default::default(),
+            runs: Default::default(),
         };
         state.credentials().await;
         let mut view = open(&state, &pr).await.unwrap();
@@ -417,6 +419,7 @@ mod tests {
             creds: tokio::sync::RwLock::new(None),
             watchers: Mutex::new(Default::default()),
             diffs: Default::default(),
+            runs: Default::default(),
         };
         state.credentials().await;
 

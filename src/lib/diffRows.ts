@@ -1,4 +1,5 @@
-import type { DiffLayout, DiffLine, DiffSide, Draft, FileHunks, FileMeta, ReviewThread } from "../ipc";
+import type { DiffLayout, DiffLine, DiffSide, Draft, FileHunks, FileMeta, Finding, ReviewThread } from "../ipc";
+import { findingLine } from "./findings";
 
 export const ROW_H = 20;
 export const FILE_H = 36;
@@ -20,7 +21,10 @@ export type Row =
   | { t: "draft"; fi: number; id: number }
   /** Drafts written against an older head, or whose line left the diff. */
   | { t: "stale"; fi: number; ids: number[] }
-  | { t: "compose"; fi: number };
+  | { t: "compose"; fi: number }
+  | { t: "finding"; fi: number; id: number }
+  /** Findings on lines this diff doesn't show. */
+  | { t: "offdiff"; fi: number; ids: number[] };
 
 /** A line you can comment on: the side of the diff and its line number there. */
 export interface Anchor {
@@ -73,6 +77,8 @@ export function rowSize(r: Row): number {
     case "draft":
     case "stale":
     case "compose":
+    case "finding":
+    case "offdiff":
       return THREAD_ESTIMATE;
     default:
       return ROW_H;
@@ -80,7 +86,13 @@ export function rowSize(r: Row): number {
 }
 
 export const isDynamic = (r: Row) =>
-  r.t === "thread" || r.t === "outdated" || r.t === "draft" || r.t === "stale" || r.t === "compose";
+  r.t === "thread" ||
+  r.t === "outdated" ||
+  r.t === "draft" ||
+  r.t === "stale" ||
+  r.t === "compose" ||
+  r.t === "finding" ||
+  r.t === "offdiff";
 
 export function rowKey(r: Row): string {
   switch (r.t) {
@@ -105,6 +117,10 @@ export function rowKey(r: Row): string {
       return `${r.fi}:stale`;
     case "compose":
       return `${r.fi}:compose`;
+    case "finding":
+      return `f:${r.id}`;
+    case "offdiff":
+      return `${r.fi}:offdiff`;
   }
 }
 
@@ -124,6 +140,8 @@ interface FileInput {
   collapsed: boolean;
   threads: ReviewThread[];
   drafts: LineDraft[];
+  /** Open findings for the current head, already filtered for display. */
+  findings: Finding[];
   headSha: string;
   /** Where the open composer for a new comment sits, if it's in this file. */
   compose: Anchor | null;
@@ -134,7 +152,7 @@ interface FileInput {
 }
 
 export function fileRows(input: FileInput): Row[] {
-  const { fi, meta, prep, layout, collapsed, threads, drafts, headSha, compose, rightOnly, syncing } = input;
+  const { fi, meta, prep, layout, collapsed, threads, drafts, findings, headSha, compose, rightOnly, syncing } = input;
   const rows: Row[] = [{ t: "gap", fi }, { t: "file", fi }];
   if (collapsed) return rows;
   if (meta.binary) return [...rows, { t: "note", fi, text: "Binary file" }];
@@ -167,6 +185,14 @@ export function fileRows(input: FileInput): Row[] {
     const k = anchor(d.target.side, d.target.line);
     draftsAt.set(k, [...(draftsAt.get(k) ?? []), d]);
   }
+  const findingsAt = new Map<string, Finding[]>();
+  const offDiff: number[] = [];
+  for (const f of findings) {
+    const line = findingLine(f);
+    if (line == null) offDiff.push(f.id);
+    else findingsAt.set(anchor("RIGHT", line), [...(findingsAt.get(anchor("RIGHT", line)) ?? []), f]);
+  }
+  const placedFindings = new Set<number>();
   const composeKey = compose && anchor(compose.side, compose.line);
   const placed = new Set<string>();
   const placedDrafts = new Set<number>();
@@ -184,6 +210,11 @@ export function fileRows(input: FileInput): Row[] {
       if (placedDrafts.has(d.id)) continue;
       placedDrafts.add(d.id);
       body.push({ t: "draft", fi, id: d.id });
+    }
+    for (const f of findingsAt.get(k) ?? []) {
+      if (placedFindings.has(f.id)) continue;
+      placedFindings.add(f.id);
+      body.push({ t: "finding", fi, id: f.id });
     }
     if (k === composeKey && !composed) {
       composed = true;
@@ -229,6 +260,8 @@ export function fileRows(input: FileInput): Row[] {
   });
 
   if (!rightOnly) {
+    for (const fs of findingsAt.values()) for (const f of fs) if (!placedFindings.has(f.id)) offDiff.push(f.id);
+    if (offDiff.length) rows.push({ t: "offdiff", fi, ids: offDiff });
     for (const ds of draftsAt.values()) for (const d of ds) if (!placedDrafts.has(d.id)) stale.push(d.id);
     if (stale.length) rows.push({ t: "stale", fi, ids: stale });
     const unplaced = threads.filter((th) => !placed.has(th.id)).map((th) => th.id);

@@ -53,12 +53,24 @@ export const commands = {
 	 *  drops files that only arrived by merging the base branch in.
 	 */
 	prSinceReview: (pr: PrRef) => typedError<SinceReview_Serialize | null, AppError_Serialize>(__TAURI_INVOKE("pr_since_review", { pr })),
+	listSkills: (pr: PrRef | null) => typedError<SkillsView_Serialize, AppError_Serialize>(__TAURI_INVOKE("list_skills", { pr })),
+	setSkillPrefs: (pinned: string | null, agent: string) => typedError<null, AppError_Serialize>(__TAURI_INVOKE("set_skill_prefs", { pinned, agent })),
+	prSkillState: (pr: PrRef) => typedError<SkillState_Serialize, AppError_Serialize>(__TAURI_INVOKE("pr_skill_state", { pr })),
+	/**  What a run has done so far in this session. */
+	skillRunLog: (runId: number) => typedError<RunUpdate_Serialize[], AppError_Serialize>(__TAURI_INVOKE("skill_run_log", { runId })),
+	runSkill: (pr: PrRef, skillId: string) => typedError<RunView_Serialize, AppError_Serialize>(__TAURI_INVOKE("run_skill", { pr, skillId })),
+	cancelSkillRun: (runId: number) => typedError<null, AppError_Serialize>(__TAURI_INVOKE("cancel_skill_run", { runId })),
+	/**  Turns a finding into a draft comment, with the body as you edited it. */
+	acceptFinding: (pr: PrRef, findingId: number, headSha: string, target: DraftTarget_Deserialize, body: string, label: CommentLabel | null) => typedError<Draft_Serialize, AppError_Serialize>(__TAURI_INVOKE("accept_finding", { pr, findingId, headSha, target, body, label })),
+	/**  Dismisses a finding with a reason, or reopens it with `None`. */
+	dismissFinding: (findingId: number, reason: string | null) => typedError<null, AppError_Serialize>(__TAURI_INVOKE("dismiss_finding", { findingId, reason })),
 };
 
 /** Events */
 export const events = {
 	prUpdated: makeEvent<PrUpdated, PrUpdated>("pr-updated"),
 	projectStatusChanged: makeEvent<ProjectStatusChanged_Serialize, ProjectStatusChanged_Deserialize>("project-status-changed"),
+	skillRunEvent: makeEvent<SkillRunEvent_Serialize, SkillRunEvent_Deserialize>("skill-run-event"),
 };
 
 /* Constants */
@@ -87,6 +99,13 @@ export type Accounts_Serialize = {
 	active: string | null,
 };
 
+export type AgentInfo = {
+	id: string,
+	name: string,
+	/**  Its CLI is installed. */
+	available: boolean,
+};
+
 /**
  *  Errors returned to the frontend. `kind` (and `error.kind` for GitHub)
  *  lets the UI pick a specific treatment, e.g. Switch account vs Authorize SSO.
@@ -97,13 +116,13 @@ export type AppError = AppError_Serialize | AppError_Deserialize;
  *  Errors returned to the frontend. `kind` (and `error.kind` for GitHub)
  *  lets the UI pick a specific treatment, e.g. Switch account vs Authorize SSO.
  */
-export type AppError_Deserialize = { kind: "github"; error: GhError_Deserialize } | { kind: "git"; message: string } | { kind: "store"; message: string } | { kind: "settings"; message: string } | { kind: "invalid"; message: string };
+export type AppError_Deserialize = { kind: "github"; error: GhError_Deserialize } | { kind: "git"; message: string } | { kind: "store"; message: string } | { kind: "settings"; message: string } | { kind: "invalid"; message: string } | { kind: "agent"; message: string };
 
 /**
  *  Errors returned to the frontend. `kind` (and `error.kind` for GitHub)
  *  lets the UI pick a specific treatment, e.g. Switch account vs Authorize SSO.
  */
-export type AppError_Serialize = { kind: "github"; error: GhError_Serialize } | { kind: "git"; message: string } | { kind: "store"; message: string } | { kind: "settings"; message: string } | { kind: "invalid"; message: string };
+export type AppError_Serialize = { kind: "github"; error: GhError_Serialize } | { kind: "git"; message: string } | { kind: "store"; message: string } | { kind: "settings"; message: string } | { kind: "invalid"; message: string } | { kind: "agent"; message: string };
 
 export type AppInfo = AppInfo_Serialize | AppInfo_Deserialize;
 
@@ -217,6 +236,23 @@ export type EnvSource =
 /**  No capture available yet; children inherit Prism's own environment. */
 "inherited" | "cache" | "fresh";
 
+/**  Something the agent did, streamed while a prompt runs. */
+export type Event = Event_Serialize | Event_Deserialize;
+
+/**  Something the agent did, streamed while a prompt runs. */
+export type Event_Deserialize = { kind: "message"; text: string } | { kind: "thought"; text: string } | 
+/**  A tool call started or changed; fields are `None` when unchanged. */
+{ kind: "tool"; id: string; title?: string | null; tool?: string | null; status?: string | null } | 
+/**  Prism refused a tool call the read-only policy doesn't allow. */
+{ kind: "denied"; title: string; tool: string } | { kind: "plan"; entries: string[] };
+
+/**  Something the agent did, streamed while a prompt runs. */
+export type Event_Serialize = { kind: "message"; text: string } | { kind: "thought"; text: string } | 
+/**  A tool call started or changed; fields are `None` when unchanged. */
+{ kind: "tool"; id: string; title: string | null; tool: string | null; status: string | null } | 
+/**  Prism refused a tool call the read-only policy doesn't allow. */
+{ kind: "denied"; title: string; tool: string } | { kind: "plan"; entries: string[] };
+
 export type FileHunks = FileHunks_Serialize | FileHunks_Deserialize;
 
 export type FileHunks_Deserialize = {
@@ -284,6 +320,42 @@ export type FileMeta_Serialize = {
 };
 
 export type FileStatus = "added" | "deleted" | "modified" | "renamed" | "copied";
+
+export type FindingStatus = "open" | "accepted" | "dismissed";
+
+export type FindingView = FindingView_Serialize | FindingView_Deserialize;
+
+export type FindingView_Deserialize = {
+	id: number,
+	run_id: number,
+	/**  Head the run reviewed; findings from older heads are stale. */
+	head_sha: string,
+	path: string,
+	line?: number | null,
+	end_line?: number | null,
+	severity: Severity,
+	title: string,
+	body: string,
+	suggestion?: string | null,
+	status: FindingStatus,
+	dismiss_reason?: string | null,
+};
+
+export type FindingView_Serialize = {
+	id: number,
+	run_id: number,
+	/**  Head the run reviewed; findings from older heads are stale. */
+	head_sha: string,
+	path: string,
+	line: number | null,
+	end_line: number | null,
+	severity: Severity,
+	title: string,
+	body: string,
+	suggestion: string | null,
+	status: FindingStatus,
+	dismiss_reason: string | null,
+};
 
 export type GhError = GhError_Serialize | GhError_Deserialize;
 
@@ -602,6 +674,44 @@ export type ReviewThread_Serialize = {
 	comments: ReviewComment_Serialize[],
 };
 
+export type RunStatus = "running" | "done" | "failed" | "cancelled";
+
+export type RunUpdate = RunUpdate_Serialize | RunUpdate_Deserialize;
+
+export type RunUpdate_Deserialize = 
+/**  A step Prism took, e.g. preparing the checkout. */
+{ kind: "step"; text: string; warning: boolean } | { kind: "agent"; event: Event_Deserialize } | { kind: "finished"; run: RunView_Deserialize; findings: FindingView_Deserialize[] };
+
+export type RunUpdate_Serialize = 
+/**  A step Prism took, e.g. preparing the checkout. */
+{ kind: "step"; text: string; warning: boolean } | { kind: "agent"; event: Event_Serialize } | { kind: "finished"; run: RunView_Serialize; findings: FindingView_Serialize[] };
+
+export type RunView = RunView_Serialize | RunView_Deserialize;
+
+export type RunView_Deserialize = {
+	id: number,
+	skill: string,
+	skill_name: string,
+	agent: string,
+	head_sha: string,
+	status: RunStatus,
+	error?: string | null,
+	started_at: number,
+	ended_at?: number | null,
+};
+
+export type RunView_Serialize = {
+	id: number,
+	skill: string,
+	skill_name: string,
+	agent: string,
+	head_sha: string,
+	status: RunStatus,
+	error: string | null,
+	started_at: number,
+	ended_at: number | null,
+};
+
 export type SearchOutcome = SearchOutcome_Serialize | SearchOutcome_Deserialize;
 
 export type SearchOutcome_Deserialize = 
@@ -634,6 +744,8 @@ export type Settings_Serialize = {
 	skills: SkillSettings_Serialize,
 	checkout: CheckoutSettings_Serialize,
 };
+
+export type Severity = "blocker" | "warning" | "nit";
 
 export type ShellEnvStatus = ShellEnvStatus_Serialize | ShellEnvStatus_Deserialize;
 
@@ -677,14 +789,82 @@ export type SinceReview_Serialize = {
 	files: FileMeta_Serialize[],
 };
 
+export type Skill = {
+	/**  Stable across launches: `repo:<dir>` or `personal:<dir>`. */
+	id: string,
+	name: string,
+	description: string,
+	source: SkillSource,
+	/**  Folder holding `SKILL.md`. */
+	dir: string,
+};
+
+export type SkillRunEvent = SkillRunEvent_Serialize | SkillRunEvent_Deserialize;
+
+export type SkillRunEvent_Deserialize = {
+	run_id: number,
+	pr: PrRef,
+	update: RunUpdate_Deserialize,
+};
+
+export type SkillRunEvent_Serialize = {
+	run_id: number,
+	pr: PrRef,
+	update: RunUpdate_Serialize,
+};
+
 export type SkillSettings = SkillSettings_Serialize | SkillSettings_Deserialize;
 
 export type SkillSettings_Deserialize = {
+	/**  Personal skill folders; `~` is the home directory. */
 	dirs?: string[],
+	/**  Skill id preselected in the palette. */
+	pinned?: string | null,
+	/**  Agent id skills run with. */
+	agent?: string,
 };
 
 export type SkillSettings_Serialize = {
+	/**  Personal skill folders; `~` is the home directory. */
 	dirs: string[],
+	/**  Skill id preselected in the palette. */
+	pinned: string | null,
+	/**  Agent id skills run with. */
+	agent: string,
+};
+
+export type SkillSource = 
+/**  Checked into the repository under review. */
+"repo" | "personal";
+
+export type SkillState = SkillState_Serialize | SkillState_Deserialize;
+
+export type SkillState_Deserialize = {
+	/**  Newest first. */
+	runs: RunView_Deserialize[],
+	findings: FindingView_Deserialize[],
+};
+
+export type SkillState_Serialize = {
+	/**  Newest first. */
+	runs: RunView_Serialize[],
+	findings: FindingView_Serialize[],
+};
+
+export type SkillsView = SkillsView_Serialize | SkillsView_Deserialize;
+
+export type SkillsView_Deserialize = {
+	skills: Skill[],
+	agents: AgentInfo[],
+	pinned?: string | null,
+	agent: string,
+};
+
+export type SkillsView_Serialize = {
+	skills: Skill[],
+	agents: AgentInfo[],
+	pinned: string | null,
+	agent: string,
 };
 
 export type TokenSource = { kind: "env"; var: string } | { kind: "gh_cli" };

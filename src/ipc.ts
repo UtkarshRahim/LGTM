@@ -3,6 +3,7 @@
 export { commands, events, HIGHLIGHT_CLASSES } from "./bindings";
 export type {
   Account,
+  AgentInfo,
   Accounts_Serialize as Accounts,
   AppError_Serialize as AppError,
   AppInfo_Serialize as AppInfo,
@@ -17,6 +18,8 @@ export type {
   DiffLine_Serialize as DiffLine,
   FileHunks_Serialize as FileHunks,
   FileMeta_Serialize as FileMeta,
+  FindingStatus,
+  FindingView_Serialize as Finding,
   GhError_Serialize as GhError,
   Hunk_Serialize as Hunk,
   LocalReview_Serialize as LocalReview,
@@ -31,9 +34,18 @@ export type {
   ReviewComment_Serialize as ReviewComment,
   ReviewEvent,
   ReviewThread_Serialize as ReviewThread,
+  RunStatus,
+  RunUpdate_Serialize as RunUpdate,
+  RunView_Serialize as Run,
   Settings_Serialize as Settings,
+  Severity,
   ShellEnvStatus_Serialize as ShellEnvStatus,
   SinceReview_Serialize as SinceReview,
+  Skill,
+  SkillRunEvent_Serialize as SkillRunEvent,
+  SkillSource,
+  SkillState_Serialize as SkillState,
+  SkillsView_Serialize as SkillsView,
   ViewedFile,
 } from "./bindings";
 

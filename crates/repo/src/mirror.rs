@@ -90,6 +90,58 @@ impl Mirrors {
         }
         Ok(out)
     }
+
+    /// A detached checkout of `head` at `dir` (reused while it's at `head`),
+    /// with `.prism/pr.diff` holding the diff from `base`. File contents are
+    /// fetched as needed. `.prism/` is ignored by git.
+    pub async fn checkout(&self, r: &MirrorRepo<'_>, dir: &Path, base: &str, head: &str) -> GitResult<()> {
+        let path = self.path(r);
+        let lock = self.lock(&path);
+        let _guard = lock.lock().await;
+        let git = Git::new(&path).with_token(r.token);
+        let current = Git::new(dir).offline().output(["rev-parse", "HEAD"]).await.ok();
+        if current.as_deref().map(|o| String::from_utf8_lossy(o).trim().to_owned()).as_deref() != Some(head) {
+            if dir.exists() {
+                let _ = git.run(["worktree", "remove", "--force", &dir.to_string_lossy()]).await;
+                let _ = tokio::fs::remove_dir_all(dir).await;
+            }
+            git.run(["worktree", "prune"]).await?;
+            if let Some(parent) = dir.parent() {
+                tokio::fs::create_dir_all(parent).await.map_err(|e| crate::GitError::Spawn(e.to_string()))?;
+            }
+            git.run(["worktree", "add", "--quiet", "--detach", &dir.to_string_lossy(), head]).await?;
+        }
+        let exclude = path.join("info").join("exclude");
+        let ignored = tokio::fs::read_to_string(&exclude).await.unwrap_or_default();
+        if !ignored.lines().any(|l| l == ".prism/") {
+            let io = |e: std::io::Error| crate::GitError::Spawn(e.to_string());
+            tokio::fs::create_dir_all(exclude.parent().expect("has parent")).await.map_err(io)?;
+            tokio::fs::write(&exclude, format!("{ignored}{}.prism/\n", if ignored.is_empty() || ignored.ends_with('\n') { "" } else { "\n" }))
+                .await
+                .map_err(io)?;
+        }
+        let diff = git
+            .output(["diff", "--no-ext-diff", "--no-textconv", "-M", "--src-prefix=a/", "--dst-prefix=b/", base, head])
+            .await?;
+        let io = |e: std::io::Error| crate::GitError::Spawn(e.to_string());
+        tokio::fs::create_dir_all(dir.join(".prism")).await.map_err(io)?;
+        tokio::fs::write(dir.join(".prism").join("pr.diff"), diff).await.map_err(io)?;
+        Ok(())
+    }
+
+    /// Paths changed in a checkout since it was made (ignoring `.prism/`),
+    /// after restoring them.
+    pub async fn restore(&self, dir: &Path) -> GitResult<Vec<String>> {
+        let git = Git::new(dir).offline();
+        let out = git.output(["status", "--porcelain", "--untracked-files=all"]).await?;
+        let changed: Vec<String> =
+            String::from_utf8_lossy(&out).lines().filter_map(|l| l.get(3..)).map(str::to_owned).collect();
+        if !changed.is_empty() {
+            git.run(["reset", "--quiet", "--hard"]).await?;
+            git.run(["clean", "--quiet", "-fd"]).await?;
+        }
+        Ok(changed)
+    }
 }
 
 async fn has_commit(path: &Path, sha: &str) -> bool {
