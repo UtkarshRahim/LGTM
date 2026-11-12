@@ -604,7 +604,8 @@ export function DiffView(props: Props) {
           if (on && startOf(fileRow[fi]) < top) requestAnimationFrame(() => scrollToFile(fi));
           break;
         }
-        case "c": {
+        case "c":
+        case "C": {
           const h = hovered.current;
           if (!h) return;
           openNew(h, e.shiftKey);
