@@ -698,6 +698,8 @@ export type RunView_Deserialize = {
 	head_sha: string,
 	status: RunStatus,
 	error?: string | null,
+	/**  The skill's writeup, without the findings JSON. Empty on older runs. */
+	report?: string | null,
 	started_at: number,
 	ended_at?: number | null,
 };
@@ -710,6 +712,8 @@ export type RunView_Serialize = {
 	head_sha: string,
 	status: RunStatus,
 	error: string | null,
+	/**  The skill's writeup, without the findings JSON. Empty on older runs. */
+	report: string | null,
 	started_at: number,
 	ended_at: number | null,
 };

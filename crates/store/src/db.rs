@@ -23,6 +23,7 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("migrations/003_project_remotes.sql")),
         M::up(include_str!("migrations/004_review_drafts.sql")),
         M::up(include_str!("migrations/005_skill_runs.sql")),
+        M::up(include_str!("migrations/006_run_report.sql")),
     ])
 }
 
@@ -71,7 +72,7 @@ mod tests {
     #[test]
     fn opens_and_migrates() {
         let db = Db::open_in_memory().unwrap();
-        assert_eq!(db.schema_version().unwrap(), 5);
+        assert_eq!(db.schema_version().unwrap(), 6);
         let tables: i64 = db
             .conn()
             .query_row(

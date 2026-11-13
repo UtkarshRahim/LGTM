@@ -42,20 +42,62 @@ pub struct Finding {
     pub suggestion: Option<String>,
 }
 
-/// Reads the findings JSON out of an agent's final message. `root` is the
-/// checkout the agent ran in, stripped from absolute paths.
-pub fn parse_findings(text: &str, root: &str) -> Result<Vec<Finding>, String> {
+/// Findings from the reply, and the rest of it: the skill's writeup with the
+/// findings JSON removed. `None` when the reply was only that JSON.
+pub fn parse_reply(text: &str, root: &str) -> Result<(Vec<Finding>, Option<String>), String> {
     let mut last_err = "no JSON object with a \"findings\" list found".to_owned();
     for candidate in candidates(text) {
         match serde_json::from_str::<Value>(candidate) {
             Ok(v) => match findings_from(&v, root) {
-                Ok(f) => return Ok(f),
+                Ok(f) => return Ok((f, report_of(text, candidate))),
                 Err(e) => last_err = e,
             },
             Err(e) => last_err = format!("invalid JSON: {e}"),
         }
     }
     Err(last_err)
+}
+
+/// Reads the findings JSON out of an agent's final message. `root` is the
+/// checkout the agent ran in, stripped from absolute paths.
+pub fn parse_findings(text: &str, root: &str) -> Result<Vec<Finding>, String> {
+    parse_reply(text, root).map(|(f, _)| f)
+}
+
+/// The reply with the findings JSON (and its fence) removed.
+fn report_of(text: &str, json: &str) -> Option<String> {
+    let start = (json.as_ptr() as usize).checked_sub(text.as_ptr() as usize)?;
+    let end = start + json.len();
+    if text.get(start..end) != Some(json) {
+        return None;
+    }
+    let (start, end) = expand_fence(text, start, end).unwrap_or((start, end));
+    let mut out = String::new();
+    out.push_str(text[..start].trim_end());
+    let tail = text[end..].trim_start();
+    if !out.is_empty() && !tail.is_empty() {
+        out.push_str("\n\n");
+    }
+    out.push_str(tail);
+    let out = out.trim();
+    if out.is_empty() { None } else { Some(out.to_owned()) }
+}
+
+/// Widens a JSON slice to the ``` fence wrapped around it, when that fence
+/// holds nothing else.
+fn expand_fence(text: &str, start: usize, end: usize) -> Option<(usize, usize)> {
+    let before = &text[..start];
+    let open = before.rfind("```")?;
+    let tag = before[open + 3..].trim();
+    if !tag.is_empty() && !tag.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return None;
+    }
+    let rest = &text[end..];
+    let trimmed = rest.trim_start();
+    if !trimmed.starts_with("```") {
+        return None;
+    }
+    Some((open, end + (rest.len() - trimmed.len()) + 3))
 }
 
 /// Fenced blocks (last first), then the whole text, then the outermost braces.
@@ -141,5 +183,32 @@ mod tests {
         assert!(parse_findings("I found nothing.", "/r").is_err());
         let e = parse_findings(r#"{"findings": [{"path": "a", "severity": "meh", "title": "t"}]}"#, "/r").unwrap_err();
         assert!(e.contains("findings[0]") && e.contains("meh"), "{e}");
+    }
+
+    #[test]
+    fn keeps_the_writeup_apart_from_the_findings() {
+        let text = "\
+## Inventory\n\
+Returns 404 for a missing id.\n\
+\n\
+```suggestion\n\
+keep me\n\
+```\n\
+\n\
+## Test gaps\n\
+MISSING: empty id.\n\
+\n\
+```json\n\
+{\"findings\": [{\"path\": \"src/a.rs\", \"line\": 4, \"severity\": \"warning\", \"title\": \"Gap\"}]}\n\
+```\n";
+        let (f, report) = parse_reply(text, "/r").unwrap();
+        assert_eq!((f.len(), f[0].title.as_str()), (1, "Gap"));
+        let report = report.unwrap();
+        assert!(report.contains("## Inventory") && report.contains("MISSING: empty id."), "{report}");
+        assert!(report.contains("```suggestion\nkeep me\n```"), "{report}");
+        assert!(!report.contains("\"findings\""), "{report}");
+
+        let (_, report) = parse_reply(r#"{"findings": []}"#, "/r").unwrap();
+        assert!(report.is_none());
     }
 }

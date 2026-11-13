@@ -61,6 +61,8 @@ pub struct RunView {
     pub head_sha: String,
     pub status: RunStatus,
     pub error: Option<String>,
+    /// The skill's writeup, without the findings JSON. Empty on older runs.
+    pub report: Option<String>,
     pub started_at: u32,
     pub ended_at: Option<u32>,
 }
@@ -149,6 +151,7 @@ fn run_view(r: RunRow) -> RunView {
             _ => RunStatus::Failed,
         },
         error: r.error,
+        report: r.report,
         started_at: r.started_at as u32,
         ended_at: r.ended_at.map(|t| t as u32),
     }
@@ -354,7 +357,7 @@ struct Job {
 }
 
 enum Outcome {
-    Done(Vec<Finding>),
+    Done { findings: Vec<Finding>, report: Option<String> },
     Cancelled,
 }
 
@@ -373,10 +376,10 @@ impl Job {
         let result = tokio::time::timeout(RUN_TIMEOUT, execute(&state, &target, cancelled, &|u| self.emit(u)))
             .await
             .unwrap_or_else(|_| Err(AppError::invalid("The run took longer than 20 minutes")));
-        let (status, error, findings) = match result {
-            Ok(Outcome::Done(f)) => ("done", None, f),
-            Ok(Outcome::Cancelled) => ("cancelled", None, Vec::new()),
-            Err(e) => ("failed", Some(e.to_string()), Vec::new()),
+        let (status, error, findings, report) = match result {
+            Ok(Outcome::Done { findings, report }) => ("done", None, findings, report),
+            Ok(Outcome::Cancelled) => ("cancelled", None, Vec::new(), None),
+            Err(e) => ("failed", Some(e.to_string()), Vec::new(), None),
         };
         let rows: Vec<NewFinding<'_>> = findings
             .iter()
@@ -390,7 +393,7 @@ impl Job {
                 suggestion: f.suggestion.as_deref(),
             })
             .collect();
-        if let Err(e) = state.db.finish_run(self.run_id, status, error.as_deref(), &rows) {
+        if let Err(e) = state.db.finish_run(self.run_id, status, error.as_deref(), report.as_deref(), &rows) {
             tracing::error!(error = %e, "saving skill run");
         }
         let pr_id = state.db.pr_id(&self.pr.host, &self.pr.owner, &self.pr.repo, self.pr.number).ok().flatten();
@@ -511,8 +514,8 @@ async fn execute(
             if turn.stop_reason == "cancelled" {
                 return Ok(Outcome::Cancelled);
             }
-            match prism_skills::parse_findings(&turn.text, &root.to_string_lossy()) {
-                Ok(f) => return Ok(Outcome::Done(f)),
+            match prism_skills::parse_reply(&turn.text, &root.to_string_lossy()) {
+                Ok((findings, report)) => return Ok(Outcome::Done { findings, report }),
                 Err(e) if attempt < RETRIES => {
                     warn(format!("Couldn't read the findings ({e}); asking again"));
                     text = prism_skills::retry_prompt(&e);
@@ -540,8 +543,8 @@ async fn execute(
         Err(e) => warn(format!("Couldn't check the checkout for changes: {e}")),
     }
     let outcome = outcome?;
-    if let Outcome::Done(f) = &outcome {
-        step(format!("{} finding{}", f.len(), if f.len() == 1 { "" } else { "s" }));
+    if let Outcome::Done { findings, .. } = &outcome {
+        step(format!("{} finding{}", findings.len(), if findings.len() == 1 { "" } else { "s" }));
     }
     Ok(outcome)
 }
@@ -641,7 +644,7 @@ mod tests {
         let target = Target { pr: &pr, skill: &skill, spec: &agent, head: &detail.head_sha, detail: &detail };
         let outcome = execute(&state, &target, cancelled, &|u| log.lock().unwrap().push(u)).await.unwrap();
         let secs = t0.elapsed().as_secs();
-        let Outcome::Done(findings) = outcome else { panic!("cancelled") };
+        let Outcome::Done { findings, .. } = outcome else { panic!("cancelled") };
 
         let log = log.into_inner().unwrap();
         for u in &log {

@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-pub use findings::{Finding, Severity, parse_findings};
+pub use findings::{Finding, Severity, parse_findings, parse_reply};
 pub use prompt::{ChangedFile, PrContext, prompt, retry_prompt};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]

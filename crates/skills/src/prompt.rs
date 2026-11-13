@@ -59,9 +59,9 @@ pub fn prompt(skill_name: &str, skill_body: &str, pr: &PrContext<'_>) -> String 
 const CONTRACT: &str = r#"
 ## Output
 
-Only report findings on lines inside the ranges above; "line" and "end_line" are line numbers in the new version of the file. If something outside them matters, attach it to the nearest changed line. Leave out praise and anything you aren't confident about.
+Write the review the skill asks for, in full. Keep every section it names, including ones that are not line comments: the approach, test gaps, risks, and the rest. Do not shorten the review down to code changes.
 
-When you're done, reply with only this JSON object in a ```json block:
+After that writeup, with nothing after it, add the line comments as this JSON object in a ```json block. "line" and "end_line" are line numbers in the new file, inside the ranges above. If something outside them matters, attach it to the nearest changed line. Leave out praise and anything you aren't confident about.
 
 {
   "findings": [
@@ -77,14 +77,14 @@ When you're done, reply with only this JSON object in a ```json block:
   ]
 }
 
-Use "blocker" for bugs, security problems and data loss; "warning" for things that should change before merging; "nit" for style and small improvements. Omit "end_line" and "suggestion" when they don't apply. If you find nothing, reply with {"findings": []}.
+Use "blocker" for bugs, security problems and data loss; "warning" for things that should change before merging; "nit" for style and small improvements. Omit "end_line" and "suggestion" when they don't apply. If there is no line comment, use {"findings": []}. The writeup above is still kept when the list is empty.
 "#;
 
 /// Sent in the same session when the reply couldn't be read.
 pub fn retry_prompt(error: &str) -> String {
     format!(
-        "Your reply couldn't be read as findings ({error}). Reply again with only the JSON object described above, \
-         in a ```json block, and nothing else."
+        "Your reply couldn't be read as findings ({error}). Write the full review again, then the JSON object \
+         in a ```json block, and nothing after it."
     )
 }
 

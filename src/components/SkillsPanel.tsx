@@ -72,6 +72,7 @@ export function SkillsPanel(props: Props) {
   const { runs, headSha, findings, stale, staleRuns, log, severities, onSeverities, pinnedName } = props;
   const { onOpenPalette, onRerun, onCancel, onFocus, onRestore, onClose } = props;
   const [logOpen, setLogOpen] = useState<boolean | null>(null);
+  const [outputOpen, setOutputOpen] = useState(true);
   const [width, setWidth, resetWidth] = useStoredSize("prism.reviewPanelWidth", 320);
   const [logHeight, setLogHeight, resetLogHeight] = useStoredSize("prism.reviewLogHeight", 220);
   const [showDismissed, setShowDismissed] = useState(false);
@@ -121,8 +122,8 @@ export function SkillsPanel(props: Props) {
       <div className={styles.scroll}>
         {!latest && (
           <div className={styles.empty}>
-            Run an auto review on this pull request with <kbd>⌘R</kbd>. Its findings show up here and on the diff, where
-            you can accept them as draft comments.
+            Run an auto review on this pull request with <kbd>⌘R</kbd>. The skill's full writeup stays in this panel.
+            Findings also show on the diff, where you can accept them as draft comments.
           </div>
         )}
 
@@ -174,6 +175,14 @@ export function SkillsPanel(props: Props) {
                     />
                   </div>
                 )}
+              </>
+            )}
+            {latest.report && (
+              <>
+                <button className={styles.logToggle} onClick={() => setOutputOpen(!outputOpen)}>
+                  {outputOpen ? "▾" : "▸"} Output
+                </button>
+                {outputOpen && <pre className={styles.report}>{latest.report}</pre>}
               </>
             )}
           </div>

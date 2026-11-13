@@ -106,6 +106,7 @@ function startRun(skillId: string, head: string, finishNow: boolean): Run {
     head_sha: head,
     status: "running",
     error: null,
+    report: null,
     started_at: now(),
     ended_at: null,
   };
@@ -113,7 +114,11 @@ function startRun(skillId: string, head: string, finishNow: boolean): Run {
   const finish = () => {
     const fs = fakeFindings(run.id, head);
     findings = [...findings, ...fs];
-    Object.assign(run, { status: "done", ended_at: now() });
+    Object.assign(run, {
+      status: "done",
+      ended_at: now(),
+      report: "Feasible. The same behavior fits in the existing helper.\n\nTest gaps\n- MISSING: empty id returns 404\n- PASS: the happy path\n\nNo blockers.",
+    });
     return fs;
   };
   if (finishNow) {

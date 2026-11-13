@@ -106,7 +106,7 @@ LGTM looks for skills in the reviewed repository and in your home folder:
 - `<repo>/.claude/skills/`, `<repo>/.cursor/skills/`, `<repo>/.agents/skills/`
 - `~/.claude/skills/`, `~/.cursor/skills/`, `~/.agents/skills/`
 
-A repository skill hides a personal one with the same name. Press `⌘R`, pick a review (star one to pin it), choose the agent at the bottom of the palette, and press `↵`. LGTM checks out the PR head in its own folder, writes the full diff to `.prism/pr.diff` for the agent, and asks for findings as JSON. Findings on changed lines can be accepted as draft comments; ones outside the diff can be copied.
+A repository skill hides a personal one with the same name. Press `⌘R`, pick a review (star one to pin it), choose the agent at the bottom of the palette, and press `↵`. LGTM checks out the PR head in its own folder, writes the full diff to `.prism/pr.diff` for the agent, and asks it to write the skill's full review, then the line comments as JSON. The writeup stays in the auto review panel. Findings on changed lines can be accepted as draft comments; ones outside the diff can be copied.
 
 ### Settings
 
