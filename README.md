@@ -8,7 +8,7 @@ Built with Tauri 2 (Rust) and React.
 
 - **Home**: PRs waiting on your review and PRs you need to re-review, plus open PRs per project. Paste any PR link anywhere to open it.
 - **Fast diffs**: unified or split view, syntax highlighting, virtualized rendering for PRs with thousands of files, generated files collapsed, per-file "Viewed" marks that reset when the file changes.
-- **Reviewing**: comment on a line (gutter `+` or `c`), drag the `+` down to comment on a range, conventional labels (praise, nit, suggestion, question), suggestion blocks, replies, resolve threads. Drafts are saved locally and posted together as one review (Comment, Approve or Request changes).
+- **Reviewing**: comment on a line (gutter `+` or `c`), drag the `+` down to comment on a range, conventional labels (praise, nit, suggestion, question), suggestion blocks, replies, resolve threads. Drafts are saved locally and posted together as one review (Comment, Approve or Request changes). Open tabs come back after you quit, with those drafts, viewed marks and auto review findings.
 - **Since your review**: after a force-push or new commits, see only the files whose changes differ from what you last reviewed.
 - **Auto review**: run a review skill (`SKILL.md`) through an ACP agent such as Cursor, Claude Code, Gemini or Codex. The agent works in a separate read-only checkout; edits and shell commands are refused. Findings appear on the diff with Accept, Edit and Dismiss.
 - **Projects**: add local clones to see their branch and dirty state, and check out a PR into the folder or a separate worktree.
