@@ -79,6 +79,8 @@ export function App() {
       if (!ok) return;
       for (const r of runs) commands.cancelSkillRun(r.run_id);
     }
+    const tab = tabsRef.current.find((t) => prKey(t.pr) === key);
+    if (tab) commands.cancelChat(tab.pr);
     const ts = tabsRef.current;
     const i = ts.findIndex((t) => prKey(t.pr) === key);
     const next = ts.filter((t) => prKey(t.pr) !== key);

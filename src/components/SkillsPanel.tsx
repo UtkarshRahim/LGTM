@@ -1,10 +1,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { Finding, Run, RunUpdate, Severity } from "../ipc";
+import { commands, events, prKey, type ChatMessage, type Finding, type PrRef, type Run, type RunUpdate, type Severity } from "../ipc";
+import { errorText } from "../lib/errors";
 import { SEVERITIES, lineLabel } from "../lib/findings";
 import { Resizer, useStoredSize } from "./Resizer";
 import styles from "./SkillsPanel.module.css";
 
 interface Props {
+  pr: PrRef;
   runs: Run[];
   headSha: string;
   /** Findings from each skill's newest run on this head. */
@@ -69,10 +71,13 @@ function useElapsed(since: number | null) {
 }
 
 export function SkillsPanel(props: Props) {
-  const { runs, headSha, findings, stale, staleRuns, log, severities, onSeverities, pinnedName } = props;
+  const { pr, runs, headSha, findings, stale, staleRuns, log, severities, onSeverities, pinnedName } = props;
   const { onOpenPalette, onRerun, onCancel, onFocus, onRestore, onClose } = props;
   const [logOpen, setLogOpen] = useState<boolean | null>(null);
-  const [outputOpen, setOutputOpen] = useState(true);
+  const [mode, setMode] = useState<"full" | "suggestions">(() =>
+    localStorage.getItem("prism.reviewMode") === "suggestions" ? "suggestions" : "full",
+  );
+  const [tab, setTab] = useState<"review" | "chat">(() => (localStorage.getItem("prism.sideTab") === "chat" ? "chat" : "review"));
   const [width, setWidth, resetWidth] = useStoredSize("prism.reviewPanelWidth", 320);
   const [logHeight, setLogHeight, resetLogHeight] = useStoredSize("prism.reviewLogHeight", 220);
   const [showDismissed, setShowDismissed] = useState(false);
@@ -109,17 +114,64 @@ export function SkillsPanel(props: Props) {
         onReset={resetWidth}
       />
       <div className={styles.head}>
-        <span className={styles.heading}>Auto review</span>
+        <div className={`${styles.segmented} ${styles.tabs}`}>
+          <button
+            data-tab="review"
+            data-on={tab === "review"}
+            onClick={() => {
+              setTab("review");
+              localStorage.setItem("prism.sideTab", "review");
+            }}
+          >
+            Review
+          </button>
+          <button
+            data-tab="chat"
+            data-on={tab === "chat"}
+            onClick={() => {
+              setTab("chat");
+              localStorage.setItem("prism.sideTab", "chat");
+            }}
+          >
+            Chat
+          </button>
+        </div>
         <span className={styles.spacer} />
-        <button className="btn" onClick={onOpenPalette} disabled={!!running} title="Choose a review (⌘R)">
-          {pinnedName ? `Run ${pinnedName}` : "Run a review"} <kbd>⌘R</kbd>
-        </button>
+        {tab === "review" && (
+          <button className="btn" onClick={onOpenPalette} disabled={!!running} title="Choose a review (⌘R)">
+            {pinnedName ? `Run ${pinnedName}` : "Run a review"} <kbd>⌘R</kbd>
+          </button>
+        )}
         <button className={styles.close} onClick={onClose} title="Hide">
           ×
         </button>
       </div>
+      {tab === "review" && latest?.report && (
+        <div className={styles.modeBar}>
+          <div className={styles.segmented}>
+            <button
+              data-on={mode === "full"}
+              onClick={() => {
+                setMode("full");
+                localStorage.setItem("prism.reviewMode", "full");
+              }}
+            >
+              Full review
+            </button>
+            <button
+              data-on={mode === "suggestions"}
+              onClick={() => {
+                setMode("suggestions");
+                localStorage.setItem("prism.reviewMode", "suggestions");
+              }}
+            >
+              Suggestions
+            </button>
+          </div>
+        </div>
+      )}
 
-      <div className={styles.scroll}>
+      <div className={styles.scroll} hidden={tab !== "review"}>
         {!latest && (
           <div className={styles.empty}>
             Run an auto review on this pull request with <kbd>⌘R</kbd>. The skill's full writeup stays in this panel.
@@ -177,14 +229,7 @@ export function SkillsPanel(props: Props) {
                 )}
               </>
             )}
-            {latest.report && (
-              <>
-                <button className={styles.logToggle} onClick={() => setOutputOpen(!outputOpen)}>
-                  {outputOpen ? "▾" : "▸"} Output
-                </button>
-                {outputOpen && <pre className={styles.report}>{latest.report}</pre>}
-              </>
-            )}
+            {latest.report && mode === "full" && <pre className={styles.report}>{latest.report}</pre>}
           </div>
         )}
 
@@ -269,7 +314,115 @@ export function SkillsPanel(props: Props) {
           </div>
         )}
       </div>
+      <Chat pr={pr} hidden={tab !== "chat"} />
     </aside>
+  );
+}
+
+function Chat({ pr, hidden }: { pr: PrRef; hidden: boolean }) {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [draft, setDraft] = useState("");
+  const [pending, setPending] = useState<string | null>(null);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const bottom = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let live = true;
+    commands.prChat(pr).then((r) => {
+      if (!live || r.status !== "ok") return;
+      setMessages((ms) => {
+        const ids = new Set(r.data.map((m) => m.id));
+        return [...r.data, ...ms.filter((m) => !ids.has(m.id))];
+      });
+    });
+    return () => {
+      live = false;
+    };
+  }, [pr]);
+
+  useEffect(() => {
+    const un = events.chatEvent.listen(({ payload }) => {
+      if (prKey(payload.pr) !== prKey(pr)) return;
+      const update = payload.update;
+      if (update.kind === "delta") setPending((p) => (p ?? "") + update.text);
+      else if (update.kind === "done") {
+        setPending(null);
+        setMessages((ms) => (ms.some((m) => m.id === update.id) ? ms : [...ms, { id: update.id, role: "assistant", body: update.body }]));
+      } else {
+        setPending(null);
+        setChatError(update.error);
+      }
+    });
+    return () => {
+      un.then((f) => f());
+    };
+  }, [pr]);
+
+  useLayoutEffect(() => {
+    if (!hidden) bottom.current?.scrollIntoView({ block: "end" });
+  }, [messages, pending, hidden, chatError]);
+
+  async function send() {
+    const text = draft.trim();
+    if (!text || pending !== null) return;
+    setChatError(null);
+    setDraft("");
+    setPending("");
+    const r = await commands.askChat(pr, text);
+    if (r.status === "error") {
+      setPending(null);
+      setDraft(text);
+      setChatError(errorText(r.error));
+      return;
+    }
+    setMessages((ms) => (ms.some((m) => m.id === r.data.id) ? ms : [...ms, r.data]));
+  }
+
+  return (
+    <div className={styles.chat} hidden={hidden}>
+      <div className={styles.transcript}>
+        {messages.length === 0 && pending === null && (
+          <div className={styles.empty}>Ask about this pull request. The title, description and diff are included.</div>
+        )}
+        {messages.map((m) => (
+          <div key={m.id} className={styles.bubble} data-role={m.role}>
+            <span className={styles.who}>{m.role === "user" ? "You" : "Agent"}</span>
+            {m.body}
+          </div>
+        ))}
+        {pending !== null && (
+          <div className={styles.bubble} data-role="assistant">
+            <span className={styles.who}>Agent</span>
+            {pending || "…"}
+          </div>
+        )}
+        <div ref={bottom} />
+      </div>
+      {chatError && <div className={styles.error}>{chatError}</div>}
+      <div className={styles.composer}>
+        <textarea
+          value={draft}
+          rows={2}
+          placeholder="Ask about this pull request"
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              send();
+            }
+          }}
+        />
+        {pending !== null ? (
+          <button className="btn ghost" onClick={() => commands.cancelChat(pr)}>
+            Stop
+          </button>
+        ) : (
+          <button className="btn" data-send disabled={!draft.trim()} onClick={send}>
+            Send
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 

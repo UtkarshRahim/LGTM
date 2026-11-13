@@ -108,6 +108,8 @@ LGTM looks for skills in the reviewed repository and in your home folder:
 
 A repository skill hides a personal one with the same name. Press `⌘R`, pick a review (star one to pin it), choose the agent at the bottom of the palette, and press `↵`. LGTM checks out the PR head in its own folder, writes the full diff to `.prism/pr.diff` for the agent, and asks it to write the skill's full review, then the line comments as JSON. The writeup stays in the auto review panel. Findings on changed lines can be accepted as draft comments; ones outside the diff can be copied.
 
+The same panel has a Chat tab. A question goes to that agent with the pull request title, description and diff, and the conversation stays with the pull request. Chat does not file findings. It waits while an auto review is using the checkout, and the other way around.
+
 ### Settings
 
 Settings live in `~/Library/Application Support/com.utkarshrahim.lgtm/settings.toml`:

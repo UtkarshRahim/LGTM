@@ -48,6 +48,8 @@ const AGENTS = [
   { id: "claude", name: "Claude Code", available: false },
 ];
 let prefs = { pinned: "personal:bug-hunt" as string | null, agent: "cursor" };
+const chat: { id: number; role: "user" | "assistant"; body: string }[] = [];
+let nextChat = 1;
 const runs: Run[] = [];
 let findings: Finding[] = [];
 let nextRun = 1;
@@ -246,6 +248,24 @@ mockIPC(
         findings = findings.map((f) =>
           f.id === a.findingId ? { ...f, status: a.reason == null ? "open" : "dismissed", dismiss_reason: a.reason as string | null } : f,
         );
+        return null;
+      case "pr_chat":
+        return structuredClone(chat);
+      case "ask_chat": {
+        const text = String(a.text ?? "");
+        const user = { id: nextChat++, role: "user" as const, body: text };
+        chat.push(user);
+        const body = "The new line returns 404.";
+        const id = nextChat++;
+        setTimeout(() => emit("chat-event", { pr: fx.pr, update: { kind: "delta", text: "The new line " } }), 40);
+        setTimeout(() => emit("chat-event", { pr: fx.pr, update: { kind: "delta", text: "returns 404." } }), 80);
+        setTimeout(() => {
+          chat.push({ id, role: "assistant", body });
+          emit("chat-event", { pr: fx.pr, update: { kind: "done", id, body } });
+        }, 120);
+        return user;
+      }
+      case "cancel_chat":
         return null;
       default:
         throw new Error(`harness: unmocked command ${cmd}`);

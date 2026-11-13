@@ -260,6 +260,10 @@ impl Runs {
             .collect()
     }
 
+    pub fn busy(&self, key: &str) -> bool {
+        self.inner.lock().unwrap().values().any(|l| l.running && l.pr == key)
+    }
+
     pub fn cancel_all(&self) {
         for l in self.inner.lock().unwrap().values().filter(|l| l.running) {
             let _ = l.cancel.send(true);
@@ -278,15 +282,22 @@ pub async fn running_reviews(state: State<'_, AppState>) -> AppResult<Vec<Runnin
 /// their agents exit with the app.
 pub fn request_quit(app: &AppHandle) {
     use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
-    let n = app.state::<AppState>().runs.running().len();
-    if n == 0 {
+    let reviews = app.state::<AppState>().runs.running().len();
+    let chatting = app.state::<AppState>().chats.busy_count();
+    if reviews == 0 && chatting == 0 {
         app.exit(0);
         return;
     }
     let app = app.clone();
-    let what = if n == 1 { "An auto review is".to_string() } else { format!("{n} auto reviews are") };
+    let message = match (reviews, chatting) {
+        (1, 0) => "An auto review is still running. Quitting stops it.".to_string(),
+        (n, 0) => format!("{n} auto reviews are still running. Quitting stops it."),
+        (0, 1) => "A chat answer is still running. Quitting stops it.".to_string(),
+        (0, n) => format!("{n} chat answers are still running. Quitting stops them."),
+        _ => "An auto review and a chat are still running. Quitting stops them.".to_string(),
+    };
     app.dialog()
-        .message(format!("{what} still running. Quitting stops it."))
+        .message(message)
         .title("Quit LGTM?")
         .kind(MessageDialogKind::Warning)
         .buttons(MessageDialogButtons::OkCancelCustom("Quit".into(), "Cancel".into()))
@@ -295,11 +306,14 @@ pub fn request_quit(app: &AppHandle) {
                 return;
             }
             app.state::<AppState>().runs.cancel_all();
+            app.state::<AppState>().chats.cancel_all();
             tauri::async_runtime::spawn(async move {
                 for _ in 0..40 {
-                    if app.state::<AppState>().runs.running().is_empty() {
+                    let state = app.state::<AppState>();
+                    if state.runs.running().is_empty() && state.chats.busy_count() == 0 {
                         break;
                     }
+                    drop(state);
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
                 app.exit(0);
@@ -332,8 +346,11 @@ pub async fn run_skill(app: AppHandle, state: State<'_, AppState>, pr: PrRef, sk
         return Err(AppError::invalid(format!("{} isn't installed", spec.name)));
     }
     let key = prs::key(&pr);
-    if state.runs.inner.lock().unwrap().values().any(|l| l.running && l.pr == key) {
+    if state.runs.busy(&key) {
         return Err(AppError::invalid("An auto review is already running on this pull request"));
+    }
+    if state.chats.busy(&key) {
+        return Err(AppError::invalid("A chat answer is still running on this pull request"));
     }
     let detail = prs::cached_detail(&state, &pr)?;
     let pr_id = state.db.pr_id(&pr.host, &pr.owner, &pr.repo, pr.number)?.expect("cached_detail found it");
@@ -630,6 +647,7 @@ mod tests {
             watchers: StdMutex::new(Default::default()),
             diffs: Default::default(),
             runs: Default::default(),
+            chats: Default::default(),
         };
         state.credentials().await;
         let diff = prs::local(&state, &pr).await.unwrap();

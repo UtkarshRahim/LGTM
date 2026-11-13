@@ -24,6 +24,7 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("migrations/004_review_drafts.sql")),
         M::up(include_str!("migrations/005_skill_runs.sql")),
         M::up(include_str!("migrations/006_run_report.sql")),
+        M::up(include_str!("migrations/007_chat.sql")),
     ])
 }
 
@@ -72,16 +73,16 @@ mod tests {
     #[test]
     fn opens_and_migrates() {
         let db = Db::open_in_memory().unwrap();
-        assert_eq!(db.schema_version().unwrap(), 6);
+        assert_eq!(db.schema_version().unwrap(), 7);
         let tables: i64 = db
             .conn()
             .query_row(
                 "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN \
-                 ('projects','prs','changesets','viewed','drafts','findings','skill_runs','agent_sessions')",
+                 ('projects','prs','changesets','viewed','drafts','findings','skill_runs','agent_sessions','chat_messages')",
                 [],
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(tables, 8);
+        assert_eq!(tables, 9);
     }
 }

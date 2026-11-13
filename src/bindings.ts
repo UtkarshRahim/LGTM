@@ -66,10 +66,14 @@ export const commands = {
 	acceptFinding: (pr: PrRef, findingId: number, headSha: string, target: DraftTarget_Deserialize, body: string, label: CommentLabel | null) => typedError<Draft_Serialize, AppError_Serialize>(__TAURI_INVOKE("accept_finding", { pr, findingId, headSha, target, body, label })),
 	/**  Dismisses a finding with a reason, or reopens it with `None`. */
 	dismissFinding: (findingId: number, reason: string | null) => typedError<null, AppError_Serialize>(__TAURI_INVOKE("dismiss_finding", { findingId, reason })),
+	prChat: (pr: PrRef) => typedError<ChatMessage[], AppError_Serialize>(__TAURI_INVOKE("pr_chat", { pr })),
+	askChat: (pr: PrRef, text: string) => typedError<ChatMessage, AppError_Serialize>(__TAURI_INVOKE("ask_chat", { pr, text })),
+	cancelChat: (pr: PrRef) => typedError<null, AppError_Serialize>(__TAURI_INVOKE("cancel_chat", { pr })),
 };
 
 /** Events */
 export const events = {
+	chatEvent: makeEvent<ChatEvent, ChatEvent>("chat-event"),
 	prUpdated: makeEvent<PrUpdated, PrUpdated>("pr-updated"),
 	projectStatusChanged: makeEvent<ProjectStatusChanged_Serialize, ProjectStatusChanged_Deserialize>("project-status-changed"),
 	skillRunEvent: makeEvent<SkillRunEvent_Serialize, SkillRunEvent_Deserialize>("skill-run-event"),
@@ -143,6 +147,21 @@ export type AppInfo_Serialize = {
 	schema_version: number,
 	shell_env: ShellEnvStatus_Serialize,
 };
+
+export type ChatEvent = {
+	pr: PrRef,
+	update: ChatUpdate,
+};
+
+export type ChatMessage = {
+	id: number,
+	role: ChatRole,
+	body: string,
+};
+
+export type ChatRole = "user" | "assistant";
+
+export type ChatUpdate = { kind: "delta"; text: string } | { kind: "done"; id: number; body: string } | { kind: "failed"; error: string };
 
 export type CheckoutMode = 
 /**  `gh pr checkout` if the project is clean; otherwise ask. */

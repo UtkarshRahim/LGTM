@@ -335,6 +335,7 @@ mod tests {
             watchers: Mutex::new(Default::default()),
             diffs: Default::default(),
             runs: Default::default(),
+            chats: Default::default(),
         };
         state.credentials().await;
 
@@ -384,6 +385,7 @@ mod tests {
             watchers: Mutex::new(Default::default()),
             diffs: Default::default(),
             runs: Default::default(),
+            chats: Default::default(),
         };
         state.credentials().await;
         let mut view = open(&state, &pr).await.unwrap();
@@ -420,6 +422,7 @@ mod tests {
             watchers: Mutex::new(Default::default()),
             diffs: Default::default(),
             runs: Default::default(),
+            chats: Default::default(),
         };
         state.credentials().await;
 

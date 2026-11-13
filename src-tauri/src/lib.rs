@@ -1,4 +1,5 @@
 mod accounts;
+mod chat;
 mod commands;
 mod diffs;
 mod error;
@@ -61,9 +62,12 @@ fn specta_builder() -> Builder<tauri::Wry> {
             skills::running_reviews,
             skills::accept_finding,
             skills::dismiss_finding,
+            chat::pr_chat,
+            chat::ask_chat,
+            chat::cancel_chat,
         ])
         .constant("HIGHLIGHT_CLASSES", prism_syntax::CLASSES)
-        .events(collect_events![projects::ProjectStatusChanged, prs::PrUpdated, skills::SkillRunEvent])
+        .events(collect_events![projects::ProjectStatusChanged, prs::PrUpdated, skills::SkillRunEvent, chat::ChatEvent])
 }
 
 fn export_bindings(builder: &Builder<tauri::Wry>) {
@@ -149,7 +153,8 @@ pub fn run() {
         })
         .on_window_event(|window, e| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = e
-                && !window.state::<AppState>().runs.running().is_empty()
+                && (!window.state::<AppState>().runs.running().is_empty()
+                    || window.state::<AppState>().chats.busy_count() > 0)
             {
                 api.prevent_close();
                 skills::request_quit(window.app_handle());
@@ -178,6 +183,7 @@ pub fn run() {
                 watchers: Mutex::new(HashMap::new()),
                 diffs: Default::default(),
                 runs: Default::default(),
+                chats: Default::default(),
             });
 
             let handle = app.handle().clone();

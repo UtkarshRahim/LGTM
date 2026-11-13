@@ -513,6 +513,7 @@ export function PrView({ pr, active, projects, layout, onLayout, onTitle, onSwit
         />
         {panel && (
           <SkillsPanel
+            pr={pr}
             runs={skillState.runs}
             headSha={headSha}
             findings={found.current}
