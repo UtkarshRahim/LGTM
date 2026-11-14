@@ -21,6 +21,7 @@ pub struct AppState {
     pub watchers: Mutex<HashMap<i32, ProjectWatcher>>,
     pub diffs: DiffCache,
     pub runs: crate::skills::Runs,
+    pub chats: crate::chat::Chats,
 }
 
 impl AppState {

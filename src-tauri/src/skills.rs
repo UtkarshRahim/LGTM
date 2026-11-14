@@ -61,6 +61,8 @@ pub struct RunView {
     pub head_sha: String,
     pub status: RunStatus,
     pub error: Option<String>,
+    /// The skill's writeup, without the findings JSON. Empty on older runs.
+    pub report: Option<String>,
     pub started_at: u32,
     pub ended_at: Option<u32>,
 }
@@ -149,6 +151,7 @@ fn run_view(r: RunRow) -> RunView {
             _ => RunStatus::Failed,
         },
         error: r.error,
+        report: r.report,
         started_at: r.started_at as u32,
         ended_at: r.ended_at.map(|t| t as u32),
     }
@@ -257,6 +260,10 @@ impl Runs {
             .collect()
     }
 
+    pub fn busy(&self, key: &str) -> bool {
+        self.inner.lock().unwrap().values().any(|l| l.running && l.pr == key)
+    }
+
     pub fn cancel_all(&self) {
         for l in self.inner.lock().unwrap().values().filter(|l| l.running) {
             let _ = l.cancel.send(true);
@@ -275,15 +282,22 @@ pub async fn running_reviews(state: State<'_, AppState>) -> AppResult<Vec<Runnin
 /// their agents exit with the app.
 pub fn request_quit(app: &AppHandle) {
     use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
-    let n = app.state::<AppState>().runs.running().len();
-    if n == 0 {
+    let reviews = app.state::<AppState>().runs.running().len();
+    let chatting = app.state::<AppState>().chats.busy_count();
+    if reviews == 0 && chatting == 0 {
         app.exit(0);
         return;
     }
     let app = app.clone();
-    let what = if n == 1 { "An auto review is".to_string() } else { format!("{n} auto reviews are") };
+    let message = match (reviews, chatting) {
+        (1, 0) => "An auto review is still running. Quitting stops it.".to_string(),
+        (n, 0) => format!("{n} auto reviews are still running. Quitting stops it."),
+        (0, 1) => "A chat answer is still running. Quitting stops it.".to_string(),
+        (0, n) => format!("{n} chat answers are still running. Quitting stops them."),
+        _ => "An auto review and a chat are still running. Quitting stops them.".to_string(),
+    };
     app.dialog()
-        .message(format!("{what} still running. Quitting stops it."))
+        .message(message)
         .title("Quit LGTM?")
         .kind(MessageDialogKind::Warning)
         .buttons(MessageDialogButtons::OkCancelCustom("Quit".into(), "Cancel".into()))
@@ -292,11 +306,14 @@ pub fn request_quit(app: &AppHandle) {
                 return;
             }
             app.state::<AppState>().runs.cancel_all();
+            app.state::<AppState>().chats.cancel_all();
             tauri::async_runtime::spawn(async move {
                 for _ in 0..40 {
-                    if app.state::<AppState>().runs.running().is_empty() {
+                    let state = app.state::<AppState>();
+                    if state.runs.running().is_empty() && state.chats.busy_count() == 0 {
                         break;
                     }
+                    drop(state);
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
                 app.exit(0);
@@ -329,8 +346,11 @@ pub async fn run_skill(app: AppHandle, state: State<'_, AppState>, pr: PrRef, sk
         return Err(AppError::invalid(format!("{} isn't installed", spec.name)));
     }
     let key = prs::key(&pr);
-    if state.runs.inner.lock().unwrap().values().any(|l| l.running && l.pr == key) {
+    if state.runs.busy(&key) {
         return Err(AppError::invalid("An auto review is already running on this pull request"));
+    }
+    if state.chats.busy(&key) {
+        return Err(AppError::invalid("A chat answer is still running on this pull request"));
     }
     let detail = prs::cached_detail(&state, &pr)?;
     let pr_id = state.db.pr_id(&pr.host, &pr.owner, &pr.repo, pr.number)?.expect("cached_detail found it");
@@ -354,7 +374,7 @@ struct Job {
 }
 
 enum Outcome {
-    Done(Vec<Finding>),
+    Done { findings: Vec<Finding>, report: Option<String> },
     Cancelled,
 }
 
@@ -373,10 +393,10 @@ impl Job {
         let result = tokio::time::timeout(RUN_TIMEOUT, execute(&state, &target, cancelled, &|u| self.emit(u)))
             .await
             .unwrap_or_else(|_| Err(AppError::invalid("The run took longer than 20 minutes")));
-        let (status, error, findings) = match result {
-            Ok(Outcome::Done(f)) => ("done", None, f),
-            Ok(Outcome::Cancelled) => ("cancelled", None, Vec::new()),
-            Err(e) => ("failed", Some(e.to_string()), Vec::new()),
+        let (status, error, findings, report) = match result {
+            Ok(Outcome::Done { findings, report }) => ("done", None, findings, report),
+            Ok(Outcome::Cancelled) => ("cancelled", None, Vec::new(), None),
+            Err(e) => ("failed", Some(e.to_string()), Vec::new(), None),
         };
         let rows: Vec<NewFinding<'_>> = findings
             .iter()
@@ -390,7 +410,7 @@ impl Job {
                 suggestion: f.suggestion.as_deref(),
             })
             .collect();
-        if let Err(e) = state.db.finish_run(self.run_id, status, error.as_deref(), &rows) {
+        if let Err(e) = state.db.finish_run(self.run_id, status, error.as_deref(), report.as_deref(), &rows) {
             tracing::error!(error = %e, "saving skill run");
         }
         let pr_id = state.db.pr_id(&self.pr.host, &self.pr.owner, &self.pr.repo, self.pr.number).ok().flatten();
@@ -511,8 +531,8 @@ async fn execute(
             if turn.stop_reason == "cancelled" {
                 return Ok(Outcome::Cancelled);
             }
-            match prism_skills::parse_findings(&turn.text, &root.to_string_lossy()) {
-                Ok(f) => return Ok(Outcome::Done(f)),
+            match prism_skills::parse_reply(&turn.text, &root.to_string_lossy()) {
+                Ok((findings, report)) => return Ok(Outcome::Done { findings, report }),
                 Err(e) if attempt < RETRIES => {
                     warn(format!("Couldn't read the findings ({e}); asking again"));
                     text = prism_skills::retry_prompt(&e);
@@ -540,8 +560,8 @@ async fn execute(
         Err(e) => warn(format!("Couldn't check the checkout for changes: {e}")),
     }
     let outcome = outcome?;
-    if let Outcome::Done(f) = &outcome {
-        step(format!("{} finding{}", f.len(), if f.len() == 1 { "" } else { "s" }));
+    if let Outcome::Done { findings, .. } = &outcome {
+        step(format!("{} finding{}", findings.len(), if findings.len() == 1 { "" } else { "s" }));
     }
     Ok(outcome)
 }
@@ -627,6 +647,7 @@ mod tests {
             watchers: StdMutex::new(Default::default()),
             diffs: Default::default(),
             runs: Default::default(),
+            chats: Default::default(),
         };
         state.credentials().await;
         let diff = prs::local(&state, &pr).await.unwrap();
@@ -641,7 +662,7 @@ mod tests {
         let target = Target { pr: &pr, skill: &skill, spec: &agent, head: &detail.head_sha, detail: &detail };
         let outcome = execute(&state, &target, cancelled, &|u| log.lock().unwrap().push(u)).await.unwrap();
         let secs = t0.elapsed().as_secs();
-        let Outcome::Done(findings) = outcome else { panic!("cancelled") };
+        let Outcome::Done { findings, .. } = outcome else { panic!("cancelled") };
 
         let log = log.into_inner().unwrap();
         for u in &log {

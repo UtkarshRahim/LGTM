@@ -7,6 +7,7 @@ export type {
   Accounts_Serialize as Accounts,
   AppError_Serialize as AppError,
   AppInfo_Serialize as AppInfo,
+  ChatMessage,
   CheckoutMode,
   CheckoutOutcome_Serialize as CheckoutOutcome,
   CommentLabel,

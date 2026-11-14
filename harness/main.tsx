@@ -48,6 +48,8 @@ const AGENTS = [
   { id: "claude", name: "Claude Code", available: false },
 ];
 let prefs = { pinned: "personal:bug-hunt" as string | null, agent: "cursor" };
+const chat: { id: number; role: "user" | "assistant"; body: string }[] = [];
+let nextChat = 1;
 const runs: Run[] = [];
 let findings: Finding[] = [];
 let nextRun = 1;
@@ -106,6 +108,7 @@ function startRun(skillId: string, head: string, finishNow: boolean): Run {
     head_sha: head,
     status: "running",
     error: null,
+    report: null,
     started_at: now(),
     ended_at: null,
   };
@@ -113,7 +116,11 @@ function startRun(skillId: string, head: string, finishNow: boolean): Run {
   const finish = () => {
     const fs = fakeFindings(run.id, head);
     findings = [...findings, ...fs];
-    Object.assign(run, { status: "done", ended_at: now() });
+    Object.assign(run, {
+      status: "done",
+      ended_at: now(),
+      report: "Feasible. The same behavior fits in the existing helper.\n\nTest gaps\n- MISSING: empty id returns 404\n- PASS: the happy path\n\nNo blockers.",
+    });
     return fs;
   };
   if (finishNow) {
@@ -241,6 +248,24 @@ mockIPC(
         findings = findings.map((f) =>
           f.id === a.findingId ? { ...f, status: a.reason == null ? "open" : "dismissed", dismiss_reason: a.reason as string | null } : f,
         );
+        return null;
+      case "pr_chat":
+        return structuredClone(chat);
+      case "ask_chat": {
+        const text = String(a.text ?? "");
+        const user = { id: nextChat++, role: "user" as const, body: text };
+        chat.push(user);
+        const body = "The new line returns 404.";
+        const id = nextChat++;
+        setTimeout(() => emit("chat-event", { pr: fx.pr, update: { kind: "delta", text: "The new line " } }), 40);
+        setTimeout(() => emit("chat-event", { pr: fx.pr, update: { kind: "delta", text: "returns 404." } }), 80);
+        setTimeout(() => {
+          chat.push({ id, role: "assistant", body });
+          emit("chat-event", { pr: fx.pr, update: { kind: "done", id, body } });
+        }, 120);
+        return user;
+      }
+      case "cancel_chat":
         return null;
       default:
         throw new Error(`harness: unmocked command ${cmd}`);

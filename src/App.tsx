@@ -3,6 +3,7 @@ import { ask, open as openDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { commands, events, prKey, type Accounts, type PrRef, type Project, type Settings } from "./ipc";
 import { errorText } from "./lib/errors";
+import { OPEN_TABS_KEY, readOpenTabs } from "./lib/openTabs";
 import { Sidebar, type Tab } from "./components/Sidebar";
 import { Home } from "./views/Home";
 import { PrView } from "./views/PrView";
@@ -13,8 +14,9 @@ const ZOOM_KEY = "prism.zoom";
 const ZOOM_STEPS = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
 
 export function App() {
-  const [tabs, setTabs] = useState<Tab[]>([]);
-  const [active, setActive] = useState("home");
+  const saved = readOpenTabs(localStorage.getItem(OPEN_TABS_KEY));
+  const [tabs, setTabs] = useState<Tab[]>(saved.tabs);
+  const [active, setActive] = useState(saved.active);
   const [projects, setProjects] = useState<Project[]>([]);
   const [prCounts, setPrCounts] = useState<Record<number, number | null>>({});
   const [accounts, setAccounts] = useState<Accounts | null>(null);
@@ -29,6 +31,14 @@ export function App() {
   tabsRef.current = tabs;
   const activeRef = useRef(active);
   activeRef.current = active;
+
+  // Tabs are the session. Drafts, viewed files and findings are already in the database, and each tab reloads them.
+  useEffect(() => {
+    const save = () => localStorage.setItem(OPEN_TABS_KEY, JSON.stringify({ tabs: tabsRef.current, active: activeRef.current }));
+    save();
+    window.addEventListener("pagehide", save);
+    return () => window.removeEventListener("pagehide", save);
+  }, [tabs, active]);
 
   const flash = useCallback((msg: string) => {
     setToast(msg);
@@ -69,6 +79,8 @@ export function App() {
       if (!ok) return;
       for (const r of runs) commands.cancelSkillRun(r.run_id);
     }
+    const tab = tabsRef.current.find((t) => prKey(t.pr) === key);
+    if (tab) commands.cancelChat(tab.pr);
     const ts = tabsRef.current;
     const i = ts.findIndex((t) => prKey(t.pr) === key);
     const next = ts.filter((t) => prKey(t.pr) !== key);

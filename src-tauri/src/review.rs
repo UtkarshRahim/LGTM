@@ -347,6 +347,7 @@ mod tests {
             watchers: Mutex::new(Default::default()),
             diffs: Default::default(),
             runs: Default::default(),
+            chats: Default::default(),
         };
         state.credentials().await;
         let gh = state.client(&pr.host).await.unwrap();

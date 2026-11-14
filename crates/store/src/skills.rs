@@ -15,6 +15,8 @@ pub struct RunRow {
     /// running, done, failed or cancelled.
     pub status: String,
     pub error: Option<String>,
+    /// The skill's writeup, without the findings JSON.
+    pub report: Option<String>,
     pub started_at: i64,
     pub ended_at: Option<i64>,
 }
@@ -59,7 +61,7 @@ impl Db {
     }
 
     /// Records the outcome and, for successful runs, the findings, together.
-    pub fn finish_run(&self, id: i64, status: &str, error: Option<&str>, findings: &[NewFinding<'_>]) -> Result<(), DbError> {
+    pub fn finish_run(&self, id: i64, status: &str, error: Option<&str>, report: Option<&str>, findings: &[NewFinding<'_>]) -> Result<(), DbError> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
         for f in findings {
@@ -70,8 +72,8 @@ impl Db {
             )?;
         }
         tx.execute(
-            "UPDATE skill_runs SET status = ?2, error = ?3, ended_at = unixepoch() WHERE id = ?1",
-            params![id, status, error],
+            "UPDATE skill_runs SET status = ?2, error = ?3, report = ?4, ended_at = unixepoch() WHERE id = ?1",
+            params![id, status, error, report],
         )?;
         tx.commit()?;
         Ok(())
@@ -90,7 +92,7 @@ impl Db {
     pub fn runs(&self, pr_id: i64) -> Result<Vec<RunRow>, DbError> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, skill, skill_name, agent, head_sha, status, error, started_at, ended_at
+            "SELECT id, skill, skill_name, agent, head_sha, status, error, report, started_at, ended_at
              FROM skill_runs WHERE pr_id = ?1 ORDER BY id DESC",
         )?;
         let rows = stmt.query_map([pr_id], |r| {
@@ -102,8 +104,9 @@ impl Db {
                 head_sha: r.get(4)?,
                 status: r.get(5)?,
                 error: r.get(6)?,
-                started_at: r.get(7)?,
-                ended_at: r.get(8)?,
+                report: r.get(7)?,
+                started_at: r.get(8)?,
+                ended_at: r.get(9)?,
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -221,9 +224,10 @@ mod tests {
             body: "b",
             suggestion: Some("x"),
         };
-        db.finish_run(run, "done", None, &[f.clone(), NewFinding { severity: "nit", line: None, end_line: None, ..f }]).unwrap();
+        db.finish_run(run, "done", None, Some("Feasible. MISSING: empty input."), &[f.clone(), NewFinding { severity: "nit", line: None, end_line: None, ..f }]).unwrap();
         let runs = db.runs(pr).unwrap();
         assert_eq!((runs[0].status.as_str(), runs[0].ended_at.is_some()), ("done", true));
+        assert_eq!(runs[0].report.as_deref(), Some("Feasible. MISSING: empty input."));
         let found = db.findings(pr).unwrap();
         assert_eq!(found.len(), 2);
         assert_eq!((found[0].head_sha.as_str(), found[0].end_line, found[0].status.as_str()), ("h1", Some(5), "open"));

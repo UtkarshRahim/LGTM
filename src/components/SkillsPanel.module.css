@@ -17,11 +17,6 @@
   border-bottom: 1px solid var(--border);
 }
 
-.heading {
-  font-weight: 600;
-  font-size: var(--text-md);
-}
-
 .spacer {
   flex: 1;
 }
@@ -38,6 +33,48 @@
 
 .close:hover {
   color: var(--text);
+}
+
+.modeBar {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.segmented {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.segmented button {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.segmented button[data-on="true"] {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.tabs {
+  flex: none;
+}
+
+.tabs button {
+  flex: none;
+  padding: 3px 10px;
+  font-weight: 600;
+}
+
+.scroll[hidden],
+.chat[hidden] {
+  display: none;
 }
 
 .scroll {
@@ -120,6 +157,74 @@
 
 .logToggle:hover {
   color: var(--text);
+}
+
+.chat {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.transcript {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-top: 12px;
+}
+
+.bubble {
+  margin: 0 12px 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+  user-select: text;
+}
+
+.bubble[data-role="user"] {
+  margin-left: 28px;
+  padding: 6px 8px;
+  background: var(--surface-2);
+  border-radius: var(--radius);
+}
+
+.who {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.composer {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+  padding: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.composer textarea {
+  flex: 1;
+  resize: none;
+  min-height: 52px;
+  max-height: 140px;
+  padding: 6px 8px;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.report {
+  margin: 0 10px 8px;
+  max-height: 50vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  line-height: 1.5;
+  user-select: text;
 }
 
 .logWrap {

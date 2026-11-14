@@ -8,7 +8,7 @@ Built with Tauri 2 (Rust) and React.
 
 - **Home**: PRs waiting on your review and PRs you need to re-review, plus open PRs per project. Paste any PR link anywhere to open it.
 - **Fast diffs**: unified or split view, syntax highlighting, virtualized rendering for PRs with thousands of files, generated files collapsed, per-file "Viewed" marks that reset when the file changes.
-- **Reviewing**: comment on a line (gutter `+` or `c`), drag the `+` down to comment on a range, conventional labels (praise, nit, suggestion, question), suggestion blocks, replies, resolve threads. Drafts are saved locally and posted together as one review (Comment, Approve or Request changes).
+- **Reviewing**: comment on a line (gutter `+` or `c`), drag the `+` down to comment on a range, conventional labels (praise, nit, suggestion, question), suggestion blocks, replies, resolve threads. Drafts are saved locally and posted together as one review (Comment, Approve or Request changes). Open tabs come back after you quit, with those drafts, viewed marks and auto review findings.
 - **Since your review**: after a force-push or new commits, see only the files whose changes differ from what you last reviewed.
 - **Auto review**: run a review skill (`SKILL.md`) through an ACP agent such as Cursor, Claude Code, Gemini or Codex. The agent works in a separate read-only checkout; edits and shell commands are refused. Findings appear on the diff with Accept, Edit and Dismiss.
 - **Projects**: add local clones to see their branch and dirty state, and check out a PR into the folder or a separate worktree.
@@ -106,7 +106,9 @@ LGTM looks for skills in the reviewed repository and in your home folder:
 - `<repo>/.claude/skills/`, `<repo>/.cursor/skills/`, `<repo>/.agents/skills/`
 - `~/.claude/skills/`, `~/.cursor/skills/`, `~/.agents/skills/`
 
-A repository skill hides a personal one with the same name. Press `⌘R`, pick a review (star one to pin it), choose the agent at the bottom of the palette, and press `↵`. LGTM checks out the PR head in its own folder, writes the full diff to `.prism/pr.diff` for the agent, and asks for findings as JSON. Findings on changed lines can be accepted as draft comments; ones outside the diff can be copied.
+A repository skill hides a personal one with the same name. Press `⌘R`, pick a review (star one to pin it), choose the agent at the bottom of the palette, and press `↵`. LGTM checks out the PR head in its own folder, writes the full diff to `.prism/pr.diff` for the agent, and asks it to write the skill's full review, then the line comments as JSON. The writeup stays in the auto review panel. Findings on changed lines can be accepted as draft comments; ones outside the diff can be copied.
+
+The same panel has a Chat tab. A question goes to that agent with the pull request title, description and diff, and the conversation stays with the pull request. Chat does not file findings. It waits while an auto review is using the checkout, and the other way around.
 
 ### Settings
 
