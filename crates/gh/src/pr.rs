@@ -394,6 +394,450 @@ pub async fn open_pr_counts(gh: &GitHub, repos: &[(String, String)]) -> GhResult
         .collect())
 }
 
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct PrComment {
+    pub id: String,
+    pub author: Option<String>,
+    pub body_html: String,
+    pub created_at: String,
+    pub url: String,
+    pub tag: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct PrCheck {
+    pub name: String,
+    pub status: String,
+    pub url: Option<String>,
+    pub summary: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct PrContext {
+    pub body_html: String,
+    pub comments: Vec<PrComment>,
+    pub checks: Vec<PrCheck>,
+    pub warning: Option<String>,
+}
+
+pub fn asset_url_ok(app_host: &str, raw: &str) -> bool {
+    let Some(rest) = raw.strip_prefix("https://") else { return false };
+    let host = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if host.is_empty() || host.contains('@') {
+        return false;
+    }
+    host == app_host || host == "github.com" || host == "www.github.com" || host.ends_with(".githubusercontent.com")
+}
+
+pub async fn pr_context(gh: &GitHub, pr: &PrRef) -> GhResult<PrContext> {
+    let (body, checks, issues, reviews) = tokio::join!(body_html(gh, pr), checks(gh, pr), issue_comments(gh, pr), review_notes(gh, pr));
+    let mut warning = Vec::new();
+    let checks = unwrap_warn(checks, "checks", &mut warning);
+    let mut comments = unwrap_warn(issues, "comments", &mut warning);
+    comments.extend(unwrap_warn(reviews, "reviews", &mut warning));
+    comments.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+    Ok(PrContext { body_html: body?, comments, checks, warning: (!warning.is_empty()).then(|| warning.join(" ")) })
+}
+
+fn unwrap_warn<T>(r: GhResult<T>, what: &str, warning: &mut Vec<String>) -> T
+where
+    T: Default,
+{
+    match r {
+        Ok(v) => v,
+        Err(e) => {
+            warning.push(format!("{what}: {e}"));
+            T::default()
+        }
+    }
+}
+
+pub async fn add_pr_comment(gh: &GitHub, pr: &PrRef, body: &str) -> GhResult<PrComment> {
+    #[derive(Deserialize)]
+    struct Data {
+        repository: Repo,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Repo {
+        pull_request: Node,
+    }
+    #[derive(Deserialize)]
+    struct Node {
+        id: String,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Added {
+        add_comment: Edge,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Edge {
+        comment_edge: Option<Wrap>,
+    }
+    #[derive(Deserialize)]
+    struct Wrap {
+        node: RawNote,
+    }
+    let what = slug(pr);
+    let q = "query($o: String!, $r: String!, $n: Int!) { repository(owner: $o, name: $r) { pullRequest(number: $n) { id } } }";
+    let data: Data = gh.graphql(q, json!({ "o": pr.owner, "r": pr.repo, "n": pr.number }), &what).await?;
+    let m = "mutation($id: ID!, $body: String!) { addComment(input: { subjectId: $id, body: $body }) { \
+        commentEdge { node { id author { login } bodyHTML createdAt url } } } }";
+    let added: Added = gh.mutate(m, json!({ "id": data.repository.pull_request.id, "body": body }), &what).await?;
+    let node = added.add_comment.comment_edge.ok_or_else(|| GhError::api("GitHub posted no comment"))?.node;
+    Ok(node.into_comment(None))
+}
+
+async fn body_html(gh: &GitHub, pr: &PrRef) -> GhResult<String> {
+    #[derive(Deserialize)]
+    struct Data {
+        repository: Option<Repo>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Repo {
+        pull_request: Option<Body>,
+    }
+    #[derive(Deserialize)]
+    struct Body {
+        #[serde(rename = "bodyHTML")]
+        body_html: String,
+    }
+    let q = "query($o: String!, $r: String!, $n: Int!) { repository(owner: $o, name: $r) { pullRequest(number: $n) { bodyHTML } } }";
+    let what = slug(pr);
+    let data: Data = gh.graphql(q, json!({ "o": pr.owner, "r": pr.repo, "n": pr.number }), &what).await?;
+    data.repository
+        .and_then(|r| r.pull_request)
+        .map(|b| b.body_html)
+        .ok_or_else(|| GhError::NotVisible { what, login: gh.login().into() })
+}
+
+async fn checks(gh: &GitHub, pr: &PrRef) -> GhResult<Vec<PrCheck>> {
+    #[derive(Deserialize)]
+    struct Data {
+        repository: Option<Repo>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Repo {
+        pull_request: Option<Pr>,
+    }
+    #[derive(Deserialize)]
+    struct Nodes<T> {
+        nodes: Vec<T>,
+    }
+    #[derive(Deserialize)]
+    struct Pr {
+        commits: Nodes<CommitWrap>,
+    }
+    #[derive(Deserialize)]
+    struct CommitWrap {
+        commit: Commit,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Commit {
+        status_check_rollup: Option<Rollup>,
+    }
+    #[derive(Deserialize)]
+    struct Rollup {
+        contexts: Contexts,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Contexts {
+        page_info: Page,
+        nodes: Vec<Option<RawContext>>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Page {
+        has_next_page: bool,
+        end_cursor: Option<String>,
+    }
+    #[derive(Deserialize)]
+    #[serde(tag = "__typename")]
+    enum RawContext {
+        CheckRun {
+            name: String,
+            status: String,
+            conclusion: Option<String>,
+            #[serde(rename = "detailsUrl")]
+            details_url: Option<String>,
+            title: Option<String>,
+            summary: Option<String>,
+        },
+        StatusContext {
+            context: String,
+            state: String,
+            #[serde(rename = "targetUrl")]
+            target_url: Option<String>,
+            description: Option<String>,
+        },
+        #[serde(other)]
+        Other,
+    }
+    let q = "query($o: String!, $r: String!, $n: Int!, $after: String) { repository(owner: $o, name: $r) { \
+        pullRequest(number: $n) { commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100, after: $after) { \
+        pageInfo { hasNextPage endCursor } nodes { __typename \
+        ... on CheckRun { name status conclusion detailsUrl title summary } \
+        ... on StatusContext { context state targetUrl description } } } } } } } } } }";
+    let what = slug(pr);
+    let mut out = Vec::new();
+    let mut after: Option<String> = None;
+    for _ in 0..5 {
+        let data: Data = gh.graphql(q, json!({ "o": pr.owner, "r": pr.repo, "n": pr.number, "after": after }), &what).await?;
+        let Some(contexts) = data
+            .repository
+            .and_then(|r| r.pull_request)
+            .and_then(|p| p.commits.nodes.into_iter().next())
+            .and_then(|c| c.commit.status_check_rollup)
+            .map(|r| r.contexts)
+        else {
+            break;
+        };
+        for node in contexts.nodes.into_iter().flatten() {
+            let mapped = match node {
+                RawContext::CheckRun { name, status, conclusion, details_url, title, summary } => Some(PrCheck {
+                    name,
+                    status: conclusion.filter(|s| !s.is_empty()).unwrap_or(status),
+                    url: details_url,
+                    summary: check_summary(title, summary),
+                }),
+                RawContext::StatusContext { context, state, target_url, description } => {
+                    Some(PrCheck { name: context, status: state, url: target_url, summary: nonempty(description) })
+                }
+                RawContext::Other => None,
+            };
+            if let Some(c) = mapped {
+                out.push(c);
+            }
+        }
+        match (contexts.page_info.has_next_page, contexts.page_info.end_cursor) {
+            (true, Some(c)) => after = Some(c),
+            _ => break,
+        }
+    }
+    out.sort_by_key(|c| (check_rank(&c.status), c.name.clone()));
+    Ok(out)
+}
+
+fn check_summary(title: Option<String>, summary: Option<String>) -> Option<String> {
+    let mut parts = Vec::new();
+    if let Some(t) = nonempty(title) {
+        parts.push(t);
+    }
+    if let Some(s) = nonempty(summary) {
+        if parts.first() != Some(&s) {
+            parts.push(s);
+        }
+    }
+    if parts.is_empty() { None } else { Some(clip(&parts.join("\n"), 400)) }
+}
+
+fn nonempty(s: Option<String>) -> Option<String> {
+    s.and_then(|s| {
+        let t = s.trim();
+        if t.is_empty() { None } else { Some(t.to_string()) }
+    })
+}
+
+fn clip(s: &str, n: usize) -> String {
+    let count = s.chars().count();
+    if count <= n { s.to_string() } else { s.chars().take(n).collect() }
+}
+
+fn check_rank(status: &str) -> u8 {
+    match status {
+        "FAILURE" | "ERROR" | "TIMED_OUT" | "STARTUP_FAILURE" | "ACTION_REQUIRED" | "CANCELLED" | "STALE" => 0,
+        "PENDING" | "QUEUED" | "IN_PROGRESS" | "WAITING" | "REQUESTED" | "EXPECTED" => 1,
+        _ => 2,
+    }
+}
+
+async fn issue_comments(gh: &GitHub, pr: &PrRef) -> GhResult<Vec<PrComment>> {
+    #[derive(Deserialize)]
+    struct Raw {
+        id: u64,
+        user: Option<Login>,
+        body: Option<String>,
+        body_html: Option<String>,
+        created_at: String,
+        html_url: String,
+    }
+    let mut out = Vec::new();
+    for page in 1..=20 {
+        let path = format!("/repos/{}/{}/issues/{}/comments?per_page=100&page={page}", pr.owner, pr.repo, pr.number);
+        let batch: Vec<Raw> = gh.rest_get_full(&path).await?;
+        let n = batch.len();
+        out.extend(batch.into_iter().map(|c| PrComment {
+            id: c.id.to_string(),
+            author: c.user.map(|u| u.login),
+            body_html: c.body_html.filter(|h| !html_blank(h)).unwrap_or_else(|| text_html(&c.body.unwrap_or_default())),
+            created_at: c.created_at,
+            url: c.html_url,
+            tag: None,
+        }));
+        if n < 100 {
+            break;
+        }
+    }
+    Ok(out)
+}
+
+async fn review_notes(gh: &GitHub, pr: &PrRef) -> GhResult<Vec<PrComment>> {
+    #[derive(Deserialize)]
+    struct Data {
+        repository: Option<Repo>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Repo {
+        pull_request: Option<Pr>,
+    }
+    #[derive(Deserialize)]
+    struct Pr {
+        reviews: ReviewPage,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct ReviewPage {
+        page_info: Page,
+        nodes: Vec<Option<RawNote>>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Page {
+        has_next_page: bool,
+        end_cursor: Option<String>,
+    }
+    let q = "query($o: String!, $r: String!, $n: Int!, $after: String) { repository(owner: $o, name: $r) { \
+        pullRequest(number: $n) { reviews(first: 100, after: $after) { pageInfo { hasNextPage endCursor } \
+        nodes { id author { login } bodyHTML submittedAt url state } } } } }";
+    let what = slug(pr);
+    let mut out = Vec::new();
+    let mut after: Option<String> = None;
+    for _ in 0..20 {
+        let data: Data = gh.graphql(q, json!({ "o": pr.owner, "r": pr.repo, "n": pr.number, "after": after }), &what).await?;
+        let Some(page) = data.repository.and_then(|r| r.pull_request).map(|p| p.reviews) else { break };
+        out.extend(page.nodes.into_iter().flatten().filter_map(|n| {
+            if n.state == "PENDING" || html_blank(&n.body_html) {
+                return None;
+            }
+            let tag = review_tag(&n.state);
+            Some(n.into_comment(tag))
+        }));
+        match (page.page_info.has_next_page, page.page_info.end_cursor) {
+            (true, Some(c)) => after = Some(c),
+            _ => break,
+        }
+    }
+    Ok(out)
+}
+
+#[derive(Deserialize)]
+struct RawNote {
+    id: String,
+    author: Option<Login>,
+    #[serde(rename = "bodyHTML")]
+    body_html: String,
+    #[serde(default)]
+    #[serde(rename = "submittedAt")]
+    submitted_at: Option<String>,
+    #[serde(default)]
+    #[serde(rename = "createdAt")]
+    created_at: Option<String>,
+    url: String,
+    #[serde(default)]
+    state: String,
+}
+
+impl RawNote {
+    fn into_comment(self, tag: Option<String>) -> PrComment {
+        PrComment {
+            id: self.id,
+            author: self.author.map(|a| a.login),
+            body_html: self.body_html,
+            created_at: self.submitted_at.or(self.created_at).unwrap_or_default(),
+            url: self.url,
+            tag,
+        }
+    }
+}
+
+fn review_tag(state: &str) -> Option<String> {
+    Some(
+        match state {
+            "APPROVED" => "approved",
+            "CHANGES_REQUESTED" => "changes requested",
+            "COMMENTED" => "commented",
+            "DISMISSED" => "dismissed",
+            _ => return None,
+        }
+        .to_string(),
+    )
+}
+
+fn html_blank(h: &str) -> bool {
+    if h.contains("<img") || h.contains("<video") || h.contains("<source") {
+        return false;
+    }
+    let mut text = String::new();
+    let mut tag = false;
+    for c in h.chars() {
+        match c {
+            '<' => tag = true,
+            '>' => tag = false,
+            _ if !tag => text.push(c),
+            _ => {}
+        }
+    }
+    text.trim().is_empty()
+}
+
+fn text_html(s: &str) -> String {
+    let mut out = String::from("<p>");
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\n' => out.push_str("<br>"),
+            _ => out.push(c),
+        }
+    }
+    out.push_str("</p>");
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn comment_html_and_check_order() {
+        assert!(html_blank("<p> </p>"));
+        assert!(html_blank("<div><br></div>"));
+        assert!(!html_blank("<p>hi</p>"));
+        assert!(!html_blank("<p><img src=\"x\"></p>"));
+        assert_eq!(text_html("a<b>&"), "<p>a&lt;b&gt;&amp;</p>");
+        assert!(check_rank("FAILURE") < check_rank("PENDING"));
+        assert!(check_rank("IN_PROGRESS") < check_rank("SUCCESS"));
+        assert_eq!(check_summary(Some("t".into()), Some("s".into())).as_deref(), Some("t\ns"));
+        assert_eq!(check_summary(Some(" same ".into()), Some("same".into())).as_deref(), Some("same"));
+        assert!(asset_url_ok("github.com", "https://github.com/user-attachments/assets/abc"));
+        assert!(asset_url_ok("github.com", "https://private-user-images.githubusercontent.com/1?jwt=a"));
+        assert!(asset_url_ok("git.example", "https://git.example/uploads/a.png"));
+        assert!(!asset_url_ok("github.com", "https://evil.com/a.png"));
+        assert!(!asset_url_ok("github.com", "http://github.com/a.png"));
+        assert!(!asset_url_ok("github.com", "https://github.com.evil/a"));
+        assert!(!asset_url_ok("github.com", "https://github.com@evil.com/a"));
+    }
+}
+
 #[cfg(test)]
 mod live {
     //! Hits the real API with your `gh` login. Run with

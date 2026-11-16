@@ -10,7 +10,7 @@ use std::sync::Arc;
 use tauri_specta::Event;
 
 use crate::diffs::{DiffSource, FileHunks, FileMeta, PrDiff};
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::projects::{project_for, repos_by_host};
 use crate::review::{DiffScope, since_key};
 use crate::state::AppState;
@@ -111,6 +111,70 @@ pub async fn needs_you(state: State<'_, AppState>) -> AppResult<NeedsYou> {
 pub async fn pr_threads(state: State<'_, AppState>, pr: PrRef) -> AppResult<Vec<ReviewThread>> {
     let gh = state.client(&pr.host).await?;
     Ok(review_threads(&gh, &pr).await?)
+}
+
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct PrAsset {
+    pub mime: String,
+    pub base64: String,
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn pr_context(state: State<'_, AppState>, pr: PrRef) -> AppResult<pr::PrContext> {
+    let gh = state.client(&pr.host).await?;
+    Ok(pr::pr_context(&gh, &pr).await?)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn add_pr_comment(state: State<'_, AppState>, pr: PrRef, body: String) -> AppResult<pr::PrComment> {
+    let body = body.trim();
+    if body.is_empty() {
+        return Err(AppError::invalid("Write a comment first"));
+    }
+    let gh = state.client(&pr.host).await?;
+    Ok(pr::add_pr_comment(&gh, &pr, body).await?)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn pr_asset(state: State<'_, AppState>, pr: PrRef, url: String) -> AppResult<PrAsset> {
+    if !pr::asset_url_ok(&pr.host, &url) {
+        return Err(AppError::invalid("That attachment isn't on GitHub"));
+    }
+    let gh = state.client(&pr.host).await?;
+    let (mime, bytes) = gh.get_https(&url).await?;
+    Ok(PrAsset { mime, base64: b64(&bytes) })
+}
+
+fn b64(bytes: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    let mut i = 0;
+    while i + 3 <= bytes.len() {
+        let n = (u32::from(bytes[i]) << 16) | (u32::from(bytes[i + 1]) << 8) | u32::from(bytes[i + 2]);
+        out.push(T[((n >> 18) & 63) as usize] as char);
+        out.push(T[((n >> 12) & 63) as usize] as char);
+        out.push(T[((n >> 6) & 63) as usize] as char);
+        out.push(T[(n & 63) as usize] as char);
+        i += 3;
+    }
+    let rest = &bytes[i..];
+    if rest.len() == 1 {
+        let n = u32::from(rest[0]) << 16;
+        out.push(T[((n >> 18) & 63) as usize] as char);
+        out.push(T[((n >> 12) & 63) as usize] as char);
+        out.push('=');
+        out.push('=');
+    } else if rest.len() == 2 {
+        let n = (u32::from(rest[0]) << 16) | (u32::from(rest[1]) << 8);
+        out.push(T[((n >> 18) & 63) as usize] as char);
+        out.push(T[((n >> 12) & 63) as usize] as char);
+        out.push(T[((n >> 6) & 63) as usize] as char);
+        out.push('=');
+    }
+    out
 }
 
 fn api_to_diff(f: ApiFile) -> FileDiff {
@@ -311,6 +375,14 @@ mod tests {
         assert_eq!((d.status, d.hunks.len(), d.patch_missing), (FileStatus::Added, 1, false));
         assert!(api_to_diff(f("modified", None, 5000)).patch_missing);
         assert!(!api_to_diff(f("renamed", None, 0)).patch_missing);
+    }
+
+    #[test]
+    fn base64_pads() {
+        assert_eq!(b64(b""), "");
+        assert_eq!(b64(b"Man"), "TWFu");
+        assert_eq!(b64(b"Ma"), "TWE=");
+        assert_eq!(b64(b"M"), "TQ==");
     }
 
     /// Phase 1 gate, measured below the UI:

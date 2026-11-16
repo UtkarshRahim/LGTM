@@ -799,11 +799,19 @@ export function DiffView(props: Props) {
         );
       case "outdated": {
         const key = `outdated:${meta.path}`;
-        const open = flipped.has(key);
+        const open = !flipped.has(key);
+        const hiddenFile = isCollapsed(meta);
         return (
           <div className={styles.threadRow}>
             <button className={styles.outdated} onClick={() => toggle(setFlipped, key)}>
-              {open ? "▾" : "▸"} {r.ids.length} {r.ids.length === 1 ? "thread" : "threads"} on lines outside this diff
+              {open ? "▾" : "▸"} {r.ids.length}{" "}
+              {hiddenFile
+                ? r.ids.length === 1
+                  ? "comment thread"
+                  : "comment threads"
+                : r.ids.length === 1
+                  ? "thread on a line outside this diff"
+                  : "threads on lines outside this diff"}
             </button>
             {open &&
               r.ids.map((id) => {
@@ -843,7 +851,7 @@ export function DiffView(props: Props) {
     return (
       <Thread
         thread={th}
-        expanded={!th.resolved !== flipped.has(th.id) || replying}
+        expanded={!flipped.has(th.id) || replying}
         onToggle={() => toggle(setFlipped, th.id)}
         replies={replies.filter((d) => d.id !== editingReply)}
         composer={

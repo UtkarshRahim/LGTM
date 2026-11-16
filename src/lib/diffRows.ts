@@ -158,7 +158,11 @@ interface FileInput {
 export function fileRows(input: FileInput): Row[] {
   const { fi, meta, prep, layout, collapsed, threads, drafts, findings, headSha, compose, rightOnly, syncing } = input;
   const rows: Row[] = [{ t: "gap", fi }, { t: "file", fi }];
-  if (collapsed) return rows;
+  if (collapsed) {
+    const ids = threads.filter((t) => !rightOnly || t.side === "RIGHT").map((t) => t.id);
+    if (ids.length) rows.push({ t: "outdated", fi, ids });
+    return rows;
+  }
   if (meta.binary) return [...rows, { t: "note", fi, text: "Binary file" }];
   if (meta.patch_missing) {
     const text = syncing ? "Large diff, loading from the local mirror…" : "Diff not available";

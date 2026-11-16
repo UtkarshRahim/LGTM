@@ -16,6 +16,7 @@ interface Props {
   thread: ReviewThread;
   expanded: boolean;
   onToggle: () => void;
+  where?: string;
   /** Your queued replies to this thread. */
   replies?: Draft[];
   /** Replaces the Reply button while you're writing one. */
@@ -31,6 +32,7 @@ export const Thread = memo(function Thread({
   thread,
   expanded,
   onToggle,
+  where,
   replies = NO_DRAFTS,
   composer,
   resolving,
@@ -54,6 +56,7 @@ export const Thread = memo(function Thread({
         <span className={styles.chev}>▸</span>
         {thread.resolved && <span className={styles.tag}>Resolved</span>}
         {thread.outdated && <span className={styles.tag}>Outdated</span>}
+        {where && <span className="muted mono truncate">{where}</span>}
         <span className={styles.author}>{first?.author ?? "ghost"}</span>
         <span className={`${styles.preview} truncate`}>{first ? stripHtml(first.body_html) : ""}</span>
         {more > 0 && <span className="muted">+{more}</span>}
@@ -69,6 +72,7 @@ export const Thread = memo(function Thread({
           <span className={styles.chev}>▾</span>
           {thread.resolved && <span className={styles.tag}>Resolved</span>}
           {thread.outdated && <span className={styles.tag}>Outdated</span>}
+          {where && <span className="muted mono truncate">{where}</span>}
           {range && <span className="muted">{range}</span>}
           {thread.line == null && thread.original_line != null && (
             <span className="muted mono">

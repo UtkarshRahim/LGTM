@@ -159,6 +159,47 @@ mockIPC(
         return fx.view;
       case "pr_threads":
         return fx.threads;
+      case "pr_context":
+        return {
+          body_html: `<p>Description with an attachment.</p><img src="https://github.com/user-attachments/assets/fixture" alt="shot">`,
+          comments: [
+            {
+              id: "note-1",
+              author: "octocat",
+              body_html: "<p>Conversation comment from someone else.</p>",
+              created_at: "2026-11-01T12:00:00Z",
+              url: `https://github.com/${fx.pr.owner}/${fx.pr.repo}/pull/${fx.pr.number}`,
+              tag: null,
+            },
+            {
+              id: "note-2",
+              author: "you",
+              body_html: "<p>My review summary.</p>",
+              created_at: "2026-11-02T12:00:00Z",
+              url: `https://github.com/${fx.pr.owner}/${fx.pr.repo}/pull/${fx.pr.number}`,
+              tag: "approved",
+            },
+          ],
+          checks: [
+            { name: "ci / test", status: "SUCCESS", url: "https://github.com/actions", summary: "142 tests passed" },
+            { name: "ci / lint", status: "FAILURE", url: "https://github.com/actions", summary: "unused import in src/app.ts" },
+            { name: "ci / build", status: "IN_PROGRESS", url: null, summary: null },
+          ],
+          warning: null,
+        };
+      case "add_pr_comment": {
+        const body = String(a.body ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c] ?? c);
+        return {
+          id: `note-${Date.now()}`,
+          author: "you",
+          body_html: `<p>${body}</p>`,
+          created_at: new Date().toISOString(),
+          url: `https://github.com/${fx.pr.owner}/${fx.pr.repo}/pull/${fx.pr.number}`,
+          tag: null,
+        };
+      }
+      case "pr_asset":
+        return { mime: "image/png", base64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" };
       case "pr_sync_local":
         return fx.view.files;
       case "needs_you": {

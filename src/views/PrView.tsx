@@ -32,6 +32,7 @@ import { ErrorNotice } from "../components/ErrorNotice";
 import { DiffView, type DiffViewHandle } from "../components/DiffView";
 import { FilePanel } from "../components/FilePanel";
 import { CheckoutButton } from "../components/CheckoutButton";
+import { PrInfo } from "../components/PrInfo";
 import { errorText } from "../lib/errors";
 import styles from "./PrView.module.css";
 
@@ -86,6 +87,7 @@ export function PrView({ pr, active, projects, layout, onLayout, onTitle, onSwit
   const [panel, setPanel] = useState(() => localStorage.getItem(PANEL_KEY) === "1");
   const [severities, setSeverities] = useState(savedSeverities);
   const [filesWidth, setFilesWidth, resetFilesWidth] = useStoredSize("prism.filePanelWidth", 280);
+  const [infoGen, setInfoGen] = useState(0);
   const diffRef = useRef<DiffViewHandle>(null);
   const started = useRef(0);
   const onTitleRef = useRef(onTitle);
@@ -364,6 +366,10 @@ export function PrView({ pr, active, projects, layout, onLayout, onTitle, onSwit
   const files = shown ?? view.files;
   const project = projects.find((p) => p.id === view.project_id);
   const unresolved = threads.filter((t) => !t.resolved).length;
+  const reload = () => {
+    setInfoGen((n) => n + 1);
+    load();
+  };
 
   return (
     <div className={styles.pr} data-active={active}>
@@ -373,7 +379,7 @@ export function PrView({ pr, active, projects, layout, onLayout, onTitle, onSwit
             {d.summary.title} <span className="muted">#{pr.number}</span>
           </h1>
           <div className={styles.actions}>
-            <button className={styles.reload} onClick={load} title="Reload pull request" aria-label="Reload pull request">
+            <button className={styles.reload} onClick={reload} title="Reload pull request" aria-label="Reload pull request">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path d="M13.4 8a5.4 5.4 0 1 1-1.3-3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
                 <path d="M13.5 2.2V5.4H10.3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
@@ -472,7 +478,7 @@ export function PrView({ pr, active, projects, layout, onLayout, onTitle, onSwit
         {updated && (
           <div className={styles.banner}>
             New commits were pushed.{" "}
-            <button className="btn" onClick={load}>
+            <button className="btn" onClick={reload}>
               Reload
             </button>
           </div>
@@ -480,6 +486,16 @@ export function PrView({ pr, active, projects, layout, onLayout, onTitle, onSwit
         {localState === "failed" && <div className={styles.warn}>Showing GitHub's patches; local diff failed: {localError}</div>}
         {threadsError && <div className={styles.warn}>Couldn't load review threads: {threadsError}</div>}
       </header>
+      <PrInfo
+        pr={pr}
+        gen={infoGen}
+        threads={threads}
+        drafts={local.drafts}
+        onResolve={onResolve}
+        onAddDraft={onAddDraft}
+        onUpdateDraft={onUpdateDraft}
+        onDeleteDraft={onDeleteDraft}
+      />
       <div className={styles.body}>
         <div className={styles.side} style={{ width: filesWidth }}>
           <FilePanel files={files} current={currentFile} onPick={pick} threadCounts={threadCounts} />
