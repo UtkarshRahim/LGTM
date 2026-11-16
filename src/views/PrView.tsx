@@ -373,6 +373,12 @@ export function PrView({ pr, active, projects, layout, onLayout, onTitle, onSwit
             {d.summary.title} <span className="muted">#{pr.number}</span>
           </h1>
           <div className={styles.actions}>
+            <button className={styles.reload} onClick={load} title="Reload pull request" aria-label="Reload pull request">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M13.4 8a5.4 5.4 0 1 1-1.3-3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                <path d="M13.5 2.2V5.4H10.3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
             <button className="btn ghost" onClick={() => openUrl(d.summary.url)}>
               GitHub ↗
             </button>

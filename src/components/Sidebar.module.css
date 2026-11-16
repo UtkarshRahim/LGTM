@@ -128,7 +128,11 @@
   align-items: stretch;
   gap: 1px;
   min-width: 0;
-  padding-right: 30px;
+  padding-right: 28px;
+}
+
+.tabMain[data-shortcut] {
+  padding-right: 58px;
 }
 
 .tabRef {
@@ -143,23 +147,23 @@
 
 .tabKbd {
   position: absolute;
-  right: 6px;
-  top: 7px;
+  right: 26px;
+  top: 5px;
 }
 
 .close {
   position: absolute;
-  right: 5px;
-  top: 50%;
-  transform: translateY(-50%);
-  display: none;
+  right: 4px;
+  top: 4px;
+  z-index: 1;
+  display: grid;
   place-items: center;
   width: 18px;
   height: 18px;
   border: 0;
   border-radius: 4px;
   background: transparent;
-  color: var(--text);
+  color: var(--muted);
   cursor: pointer;
   font-size: 14px;
   line-height: 1;
@@ -167,15 +171,36 @@
 }
 
 .close:hover {
+  color: var(--text);
   background: #2c323b;
 }
 
-.tab:hover .close {
-  display: grid;
+.tabMenu {
+  position: fixed;
+  z-index: 80;
+  min-width: 148px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
 }
 
-.tab:hover .tabKbd {
-  display: none;
+.tabMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  border-radius: var(--radius);
+  padding: 5px 8px;
+  cursor: pointer;
+}
+
+.tabMenuItem:hover {
+  background: #1c2129;
 }
 
 .add,
