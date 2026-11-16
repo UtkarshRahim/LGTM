@@ -40,6 +40,25 @@
   align-items: center;
 }
 
+.reload {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  line-height: 0;
+}
+
+.reload:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
 .actions button[data-on="true"] {
   color: var(--text);
   background: var(--surface-2);

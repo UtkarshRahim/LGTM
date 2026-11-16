@@ -1,4 +1,4 @@
-import { useRef, useState, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent, type PointerEvent } from "react";
 import type { Accounts, PrRef, Project } from "../ipc";
 import { prKey } from "../ipc";
 import logo from "../assets/logo.png";
@@ -70,6 +70,32 @@ export function Sidebar(p: Props) {
     localStorage.removeItem(TABS_HEIGHT_KEY);
   };
 
+  const [menu, setMenu] = useState<{ key: string; x: number; y: number } | null>(null);
+  const openMenu = (key: string, e: MouseEvent) => {
+    e.preventDefault();
+    const x = Math.max(8, Math.min(e.clientX, window.innerWidth - 168));
+    const y = Math.max(8, Math.min(e.clientY, window.innerHeight - 44));
+    setMenu({ key, x, y });
+  };
+  useEffect(() => {
+    if (!menu) return;
+    const close = (e: Event) => {
+      if (e.target instanceof Element && e.target.closest("[data-tab-menu]")) return;
+      setMenu(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenu(null);
+    };
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [menu]);
+
   return (
     <nav ref={navRef} className={styles.sidebar}>
       <div className={styles.drag} data-tauri-drag-region>
@@ -94,9 +120,10 @@ export function Sidebar(p: Props) {
               key={key}
               className={styles.tab}
               data-active={p.active === key}
+              onContextMenu={(e) => openMenu(key, e)}
               onAuxClick={(e) => e.button === 1 && p.onClose(key)}
             >
-              <button className={styles.tabMain} onClick={() => p.onSelect(key)} title={t.title}>
+              <button className={styles.tabMain} data-shortcut={i < 8 || undefined} onClick={() => p.onSelect(key)} title={t.title}>
                 <span className={styles.tabRef}>
                   {t.pr.repo}
                   <span className="muted">#{t.pr.number}</span>
@@ -104,7 +131,15 @@ export function Sidebar(p: Props) {
                 <span className={`${styles.tabTitle} truncate`}>{t.title ?? "Loading…"}</span>
               </button>
               {i < 8 && <kbd className={styles.tabKbd}>⌘{i + 2}</kbd>}
-              <button className={styles.close} onClick={() => p.onClose(key)} aria-label="Close tab" title="Close (⌘W)">
+              <button
+                className={styles.close}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  p.onClose(key);
+                }}
+                aria-label="Close tab"
+                title="Close (⌘W)"
+              >
                 ×
               </button>
             </div>
@@ -187,6 +222,23 @@ export function Sidebar(p: Props) {
           </div>
         ))}
       </div>
+
+      {menu && (
+        <div className={styles.tabMenu} style={{ left: menu.x, top: menu.y }} role="menu" data-tab-menu>
+          <button
+            className={styles.tabMenuItem}
+            role="menuitem"
+            onClick={() => {
+              const key = menu.key;
+              setMenu(null);
+              p.onClose(key);
+            }}
+          >
+            <span className={styles.grow}>Close</span>
+            {p.active === menu.key && <kbd>⌘W</kbd>}
+          </button>
+        </div>
+      )}
 
       <div className={styles.footer}>
         <button className={styles.account} onClick={() => p.setAccountMenuOpen(!p.accountMenuOpen)}>
