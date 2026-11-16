@@ -1,7 +1,7 @@
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
-use reqwest::header::{ACCEPT, AUTHORIZATION, HeaderMap, RETRY_AFTER, USER_AGENT};
+use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderMap, RETRY_AFTER, USER_AGENT};
 use reqwest::{RequestBuilder, Response, StatusCode};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -76,10 +76,14 @@ impl GitHub {
     }
 
     fn request(&self, method: reqwest::Method, url: &str) -> RequestBuilder {
+        self.request_accept(method, url, "application/vnd.github+json")
+    }
+
+    fn request_accept(&self, method: reqwest::Method, url: &str, accept: &str) -> RequestBuilder {
         HTTP.request(method, url)
             .header(AUTHORIZATION, &self.auth)
             .header(USER_AGENT, "LGTM")
-            .header(ACCEPT, "application/vnd.github+json")
+            .header(ACCEPT, accept)
             .header("X-GitHub-Api-Version", "2022-11-28")
     }
 
@@ -95,6 +99,54 @@ impl GitHub {
         let url = format!("{}{path}", self.rest_base);
         let resp = self.send(|| self.request(reqwest::Method::GET, &url), path, true).await?;
         Ok(resp.json().await?)
+    }
+
+    pub async fn rest_get_full<T: DeserializeOwned>(&self, path: &str) -> GhResult<T> {
+        let url = format!("{}{path}", self.rest_base);
+        let resp = self
+            .send(
+                || self.request_accept(reqwest::Method::GET, &url, "application/vnd.github.full+json"),
+                path,
+                true,
+            )
+            .await?;
+        Ok(resp.json().await?)
+    }
+
+    pub async fn get_https(&self, url: &str) -> GhResult<(String, Vec<u8>)> {
+        if !url.starts_with("https://") {
+            return Err(GhError::api("attachment url must be https"));
+        }
+        let auth = authed_asset_host(self.host(), url);
+        let resp = self
+            .send(
+                || {
+                    let mut req = HTTP.request(reqwest::Method::GET, url).header(USER_AGENT, "LGTM").header(ACCEPT, "*/*");
+                    if auth {
+                        req = req.header(AUTHORIZATION, &self.auth);
+                    }
+                    req
+                },
+                url,
+                true,
+            )
+            .await?;
+        if resp.content_length().unwrap_or(0) > MAX_ASSET as u64 {
+            return Err(GhError::api("attachment is too large to preview"));
+        }
+        let mime = resp
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.split(';').next())
+            .unwrap_or("application/octet-stream")
+            .trim()
+            .to_string();
+        let bytes = resp.bytes().await?;
+        if bytes.len() > MAX_ASSET {
+            return Err(GhError::api("attachment is too large to preview"));
+        }
+        Ok((mime, bytes.to_vec()))
     }
 
     /// Runs a GraphQL query; any error in the response fails the call.
@@ -261,6 +313,14 @@ fn backoff(attempt: u32) -> Duration {
         .map(|d| d.subsec_nanos() as u64)
         .unwrap_or(0);
     Duration::from_millis(nanos % cap_ms)
+}
+
+const MAX_ASSET: usize = 8 * 1024 * 1024;
+
+fn authed_asset_host(app_host: &str, url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("https://") else { return false };
+    let host = rest.split(['/', '?', '#']).next().unwrap_or("");
+    host == app_host || host == "api.github.com" || host == "github.com" || host == "www.github.com"
 }
 
 fn truncate(s: &str) -> &str {

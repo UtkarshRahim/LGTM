@@ -32,6 +32,9 @@ export const commands = {
 	/**  Hunks (with syntax highlighting) for the given files of an opened PR. */
 	prHunks: (pr: PrRef, scope: DiffScope, paths: string[]) => typedError<FileHunks_Serialize[], AppError_Serialize>(__TAURI_INVOKE("pr_hunks", { pr, scope, paths })),
 	prThreads: (pr: PrRef) => typedError<ReviewThread_Serialize[], AppError_Serialize>(__TAURI_INVOKE("pr_threads", { pr })),
+	prContext: (pr: PrRef) => typedError<PrContext_Serialize, AppError_Serialize>(__TAURI_INVOKE("pr_context", { pr })),
+	addPrComment: (pr: PrRef, body: string) => typedError<PrComment_Serialize, AppError_Serialize>(__TAURI_INVOKE("add_pr_comment", { pr, body })),
+	prAsset: (pr: PrRef, url: string) => typedError<PrAsset, AppError_Serialize>(__TAURI_INVOKE("pr_asset", { pr, url })),
 	/**  Home's queue, across github.com and every host your projects live on. */
 	needsYou: () => typedError<NeedsYou_Serialize, AppError_Serialize>(__TAURI_INVOKE("needs_you")),
 	prLocalReview: (pr: PrRef) => typedError<LocalReview_Serialize, AppError_Serialize>(__TAURI_INVOKE("pr_local_review", { pr })),
@@ -452,6 +455,63 @@ export type NeedsYou_Deserialize = {
 export type NeedsYou_Serialize = {
 	blocking: PrHit_Serialize[],
 	rereview: PrHit_Serialize[],
+};
+
+export type PrAsset = {
+	mime: string,
+	base64: string,
+};
+
+export type PrCheck = PrCheck_Serialize | PrCheck_Deserialize;
+
+export type PrCheck_Deserialize = {
+	name: string,
+	status: string,
+	url?: string | null,
+	summary?: string | null,
+};
+
+export type PrCheck_Serialize = {
+	name: string,
+	status: string,
+	url: string | null,
+	summary: string | null,
+};
+
+export type PrComment = PrComment_Serialize | PrComment_Deserialize;
+
+export type PrComment_Deserialize = {
+	id: string,
+	author?: string | null,
+	body_html: string,
+	created_at: string,
+	url: string,
+	tag?: string | null,
+};
+
+export type PrComment_Serialize = {
+	id: string,
+	author: string | null,
+	body_html: string,
+	created_at: string,
+	url: string,
+	tag: string | null,
+};
+
+export type PrContext = PrContext_Serialize | PrContext_Deserialize;
+
+export type PrContext_Deserialize = {
+	body_html: string,
+	comments: PrComment_Deserialize[],
+	checks: PrCheck_Deserialize[],
+	warning?: string | null,
+};
+
+export type PrContext_Serialize = {
+	body_html: string,
+	comments: PrComment_Serialize[],
+	checks: PrCheck_Serialize[],
+	warning: string | null,
 };
 
 export type PrCount = PrCount_Serialize | PrCount_Deserialize;
