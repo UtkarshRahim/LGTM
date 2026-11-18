@@ -23,6 +23,33 @@
   font-size: var(--text-md);
 }
 
+.modes {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px 0;
+}
+
+.mode {
+  border: 0;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.mode[data-on="true"] {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.preview {
+  min-height: 96px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
 .input {
   display: block;
   width: 100%;

@@ -10,6 +10,11 @@
   white-space: normal;
 }
 
+.card.plain {
+  margin: 12px 0 0;
+  max-width: none;
+}
+
 .inline {
   border-top: 1px solid var(--border);
   font-family: var(--font-ui);
@@ -102,12 +107,16 @@
   font-size: var(--text-sm);
 }
 
-.body {
+.body,
+.preview {
   padding: 6px 12px 8px;
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
   user-select: text;
   cursor: text;
+}
+
+.preview {
+  min-height: 72px;
 }
 
 .link {

@@ -133,10 +133,15 @@ function startRun(skillId: string, head: string, finishNow: boolean): Run {
     [400, { kind: "step", text: "Starting Cursor", warning: false }],
     [700, { kind: "step", text: "Using Cursor's Ask mode (read-only)", warning: false }],
     [800, { kind: "step", text: `Running ${skill.name}`, warning: false }],
-    [1100, { kind: "agent", event: { kind: "tool", id: "t1", title: "Read .prism/pr.diff", tool: "read", status: "completed" } }],
-    [1400, { kind: "agent", event: { kind: "tool", id: "t2", title: `Read ${fx.hunks[0].path}`, tool: "read", status: "completed" } }],
-    [1700, { kind: "agent", event: { kind: "denied", title: "`go test ./...`", tool: "execute" } }],
-    [2000, { kind: "agent", event: { kind: "tool", id: "t3", title: "grep \"func New\"", tool: "search", status: "completed" } }],
+    [1100, { kind: "agent", event: { kind: "thought", text: "The auth check is skipped when " } }],
+    [1300, { kind: "agent", event: { kind: "thought", text: "the bundle flag is set. " } }],
+    [1500, { kind: "agent", event: { kind: "message", text: "Looking at the flag path. " } }],
+    [1650, { kind: "agent", event: { kind: "tool", id: "t1", title: "Read .prism/pr.diff", tool: "read", status: "pending" } }],
+    [1900, { kind: "agent", event: { kind: "tool", id: "t1", title: "Read .prism/pr.diff", tool: "read", status: "completed" } }],
+    [2100, { kind: "agent", event: { kind: "tool", id: "t2", title: `Read ${fx.hunks[0].path}`, tool: "read", status: "completed" } }],
+    [2300, { kind: "agent", event: { kind: "message", text: '{"findings":[]}' } }],
+    [2500, { kind: "agent", event: { kind: "denied", title: "`go test ./...`", tool: "execute" } }],
+    [2700, { kind: "agent", event: { kind: "tool", id: "t3", title: "grep \"func New\"", tool: "search", status: "completed" } }],
   ];
   for (const [ms, u] of script) setTimeout(() => run.status === "running" && send(u), ms);
   setTimeout(() => {
@@ -144,7 +149,7 @@ function startRun(skillId: string, head: string, finishNow: boolean): Run {
     const fs = finish();
     send({ kind: "step", text: `${fs.length} findings`, warning: false });
     send({ kind: "finished", run: { ...run }, findings: structuredClone(fs) });
-  }, Number(params.get("runms") ?? 2600));
+  }, Number(params.get("runms") ?? 3600));
   return run;
 }
 if (params.get("skills") === "done") startRun("personal:bug-hunt", fx.view.detail.head_sha, true);
@@ -200,6 +205,60 @@ mockIPC(
       }
       case "pr_asset":
         return { mime: "image/png", base64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" };
+      case "pr_conversation":
+        await sleep(120);
+        return {
+          truncated: false,
+          items: [
+            {
+              id: "c1",
+              author: "octocat",
+              body_html: "<p>Looks good. One question about the flag.</p><pre><code>echo hi</code></pre>",
+              created_at: "2024-06-01T12:00:00Z",
+              url: "https://github.com",
+              review_state: null,
+            },
+            {
+              id: "r1",
+              author: "hubot",
+              body_html: "<p>Ship it.</p>",
+              created_at: "2024-06-02T12:00:00Z",
+              url: "https://github.com",
+              review_state: "APPROVED",
+            },
+          ],
+        };
+      case "comment_on_pr":
+        await sleep(150);
+        return {
+          id: `c${Date.now()}`,
+          author: "you",
+          body_html: `<p>${String(a.body ?? "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")}</p>`,
+          created_at: new Date().toISOString(),
+          url: "https://github.com",
+          review_state: null,
+        };
+      case "pr_file_lines": {
+        const start = a.start as number;
+        const end = a.end as number;
+        const lines: string[] = [];
+        for (let n = start; n <= end; n++) lines.push(`unchanged line ${n}`);
+        return { lines, eof: end >= 80 };
+      }
+      case "pr_checks":
+        await sleep(180);
+        return {
+          conclusion: "failure",
+          truncated: false,
+          checks: [
+            { name: "lint", status: "failure", url: "https://github.com" },
+            { name: "build", status: "pending", url: null },
+            { name: "test", status: "success", url: "https://github.com" },
+            { name: "coverage", status: "skipped", url: null },
+          ],
+        };
       case "pr_sync_local":
         return fx.view.files;
       case "needs_you": {

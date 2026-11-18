@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReviewEvent } from "../ipc";
+import { CommentPreview } from "./Draft";
 import styles from "./ReviewSubmit.module.css";
 
 interface Props {
@@ -20,6 +21,7 @@ export function ReviewSubmit({ pending, stale, onSubmit }: Props) {
   const [open, setOpen] = useState(false);
   const [event, setEvent] = useState<ReviewEvent>("COMMENT");
   const [body, setBody] = useState("");
+  const [mode, setMode] = useState<"write" | "preview">("write");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const wrap = useRef<HTMLDivElement>(null);
@@ -57,14 +59,26 @@ export function ReviewSubmit({ pending, stale, onSubmit }: Props) {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !busy) submit();
           }}
         >
-          <textarea
-            autoFocus
-            className={styles.input}
-            rows={5}
-            placeholder="Summary (optional)"
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-          />
+          <div className={styles.modes}>
+            <button type="button" className={styles.mode} data-on={mode === "write"} onClick={() => setMode("write")}>
+              Write
+            </button>
+            <button type="button" className={styles.mode} data-on={mode === "preview"} onClick={() => setMode("preview")}>
+              Preview
+            </button>
+          </div>
+          {mode === "write" ? (
+            <textarea
+              autoFocus
+              className={styles.input}
+              rows={5}
+              placeholder="Summary (optional)"
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+            />
+          ) : (
+            <CommentPreview body={body} className={styles.preview} />
+          )}
           <div className={styles.events}>
             {EVENTS.map((x) => (
               <label key={x.event} className={styles.event} data-on={event === x.event}>

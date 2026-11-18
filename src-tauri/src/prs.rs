@@ -177,6 +177,55 @@ fn b64(bytes: &[u8]) -> String {
     out
 }
 
+/// CI checks on the pull request's latest commit.
+#[tauri::command]
+#[specta::specta]
+pub async fn pr_checks(state: State<'_, AppState>, pr: PrRef) -> AppResult<prism_gh::checks::PrChecks> {
+    let gh = state.client(&pr.host).await?;
+    Ok(prism_gh::checks::pull_request_checks(&gh, &pr).await?)
+}
+
+/// Issue comments and submitted reviews on the pull request.
+#[tauri::command]
+#[specta::specta]
+pub async fn pr_conversation(state: State<'_, AppState>, pr: PrRef) -> AppResult<prism_gh::conversation::Conversation> {
+    let gh = state.client(&pr.host).await?;
+    Ok(prism_gh::conversation::conversation(&gh, &pr).await?)
+}
+
+/// Posts a comment on the pull request itself, not on a line.
+#[tauri::command]
+#[specta::specta]
+pub async fn comment_on_pr(state: State<'_, AppState>, pr: PrRef, body: String) -> AppResult<prism_gh::conversation::ConversationItem> {
+    if body.trim().is_empty() {
+        return Err(crate::error::AppError::invalid("Write a comment first"));
+    }
+    let gh = state.client(&pr.host).await?;
+    Ok(prism_gh::conversation::add_comment(&gh, &pr, &body).await?)
+}
+
+/// A window of unchanged lines from a file at `sha`, so a diff can show the code
+/// between hunks. `start` and `end` are 1-based and inclusive.
+#[tauri::command]
+#[specta::specta]
+pub async fn pr_file_lines(state: State<'_, AppState>, pr: PrRef, path: String, sha: String, start: u32, end: u32) -> AppResult<prism_gh::blob::FileSlice> {
+    if path.is_empty() || !valid_sha(&sha) || start == 0 || end < start || end - start > 40 {
+        return Err(crate::error::AppError::invalid("Ask for a short line range"));
+    }
+    let token = state.token(&pr.host).await?;
+    let repo = MirrorRepo { host: &pr.host, owner: &pr.owner, repo: &pr.repo, token: &token };
+    if let Ok(text) = state.mirrors.read_file(&repo, &sha, &path).await {
+        return Ok(prism_gh::blob::slice_lines(&text, start, end));
+    }
+    let gh = state.client(&pr.host).await?;
+    let text = prism_gh::blob::file_text(&gh, &pr, &path, &sha).await?;
+    Ok(prism_gh::blob::slice_lines(&text, start, end))
+}
+
+fn valid_sha(sha: &str) -> bool {
+    (7..=64).contains(&sha.len()) && sha.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
 fn api_to_diff(f: ApiFile) -> FileDiff {
     let status = match f.status.as_str() {
         "added" => FileStatus::Added,

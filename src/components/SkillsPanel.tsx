@@ -31,29 +31,82 @@ interface Props {
 interface LogEntry {
   key: string;
   text: string;
-  kind: "step" | "warning" | "tool" | "denied";
+  kind: "step" | "warning" | "thought" | "message" | "tool" | "denied" | "plan";
   status?: string | null;
+}
+
+function isFindingsDump(text: string): boolean {
+  const t = text.trim();
+  return /"findings"\s*:/.test(t) && (t.startsWith("{") || t.startsWith("[") || t.includes("```"));
 }
 
 function logEntries(log: RunUpdate[]): LogEntry[] {
   const out: LogEntry[] = [];
   const tools = new Map<string, LogEntry>();
-  log.forEach((u, i) => {
-    if (u.kind === "step") out.push({ key: `s${i}`, text: u.text, kind: u.warning ? "warning" : "step" });
-    else if (u.kind === "agent") {
-      const e = u.event;
-      if (e.kind === "tool") {
-        const t = tools.get(e.id);
-        if (t) {
-          if (e.title) t.text = e.title;
-          if (e.status) t.status = e.status;
-        } else {
-          const entry: LogEntry = { key: `t${e.id}`, text: e.title ?? e.tool ?? "Tool", kind: "tool", status: e.status };
-          tools.set(e.id, entry);
-          out.push(entry);
-        }
-      } else if (e.kind === "denied") out.push({ key: `d${i}`, text: `Refused: ${e.title}`, kind: "denied" });
+  let thought: LogEntry | null = null;
+  let message: LogEntry | null = null;
+  let hideMessage = false;
+
+  const breakSpeech = () => {
+    if (message && isFindingsDump(message.text)) {
+      const i = out.indexOf(message);
+      if (i >= 0) out.splice(i, 1);
     }
+    thought = null;
+    message = null;
+    hideMessage = false;
+  };
+
+  log.forEach((u, i) => {
+    if (u.kind === "finished") {
+      breakSpeech();
+      return;
+    }
+    if (u.kind === "step") {
+      breakSpeech();
+      out.push({ key: `s${i}`, text: u.text, kind: u.warning ? "warning" : "step" });
+      return;
+    }
+    const e = u.event;
+    if (e.kind === "thought") {
+      message = null;
+      hideMessage = false;
+      if (!e.text) return;
+      if (thought) thought.text += e.text;
+      else {
+        thought = { key: `th${i}`, text: e.text, kind: "thought" };
+        out.push(thought);
+      }
+      return;
+    }
+    if (e.kind === "message") {
+      thought = null;
+      if (hideMessage || !e.text) return;
+      if (message) message.text += e.text;
+      else {
+        message = { key: `m${i}`, text: e.text, kind: "message" };
+        out.push(message);
+      }
+      if (isFindingsDump(message.text)) {
+        out.splice(out.indexOf(message), 1);
+        message = null;
+        hideMessage = true;
+      }
+      return;
+    }
+    breakSpeech();
+    if (e.kind === "tool") {
+      const t = tools.get(e.id);
+      if (t) {
+        if (e.title) t.text = e.title;
+        if (e.status) t.status = e.status;
+      } else {
+        const entry: LogEntry = { key: `t${e.id}`, text: e.title ?? e.tool ?? "Tool", kind: "tool", status: e.status };
+        tools.set(e.id, entry);
+        out.push(entry);
+      }
+    } else if (e.kind === "denied") out.push({ key: `d${i}`, text: `Refused: ${e.title}`, kind: "denied" });
+    else if (e.kind === "plan" && e.entries.length) out.push({ key: `p${i}`, text: e.entries.join("\n"), kind: "plan" });
   });
   return out;
 }
@@ -86,7 +139,7 @@ export function SkillsPanel(props: Props) {
   const running = latest?.status === "running" ? latest : null;
   const elapsed = useElapsed(running?.started_at ?? null);
   const entries = useMemo(() => logEntries(log), [log]);
-  const showLog = logOpen ?? (!!running || latest?.status === "failed");
+  const showLog = running != null || (logOpen ?? true);
   const logRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const el = logRef.current;
@@ -203,10 +256,10 @@ export function SkillsPanel(props: Props) {
               )}
             </div>
             {latest.error && <div className={styles.error}>{latest.error}</div>}
-            {entries.length > 0 && (
+            {(entries.length > 0 || running) && (
               <>
                 <button className={styles.logToggle} onClick={() => setLogOpen(!showLog)}>
-                  {showLog ? "▾" : "▸"} Activity ({entries.length})
+                  {showLog ? "▾" : "▸"} Activity{running ? "" : ` (${entries.length})`}
                 </button>
                 {showLog && (
                   <div className={styles.logWrap}>
@@ -216,6 +269,13 @@ export function SkillsPanel(props: Props) {
                           {e.text}
                         </div>
                       ))}
+                      {running && (
+                        <div className={styles.working}>
+                          <span className={styles.dot} data-status="running" />
+                          Working
+                          <span className="muted mono">{elapsed}</span>
+                        </div>
+                      )}
                     </div>
                     <Resizer
                       edge="bottom"

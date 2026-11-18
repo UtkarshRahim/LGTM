@@ -156,3 +156,78 @@ kbd {
   border-radius: 5px;
   border: 2px solid var(--bg);
 }
+
+.md p,
+.md ul,
+.md ol,
+.md pre,
+.md blockquote {
+  margin: 0.45em 0;
+}
+
+.md :first-child {
+  margin-top: 0;
+}
+
+.md :last-child {
+  margin-bottom: 0;
+}
+
+.md a {
+  color: var(--accent);
+}
+
+.md code {
+  font-size: 12px;
+}
+
+.md pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  overflow-x: auto;
+}
+
+.md pre code {
+  font-size: 12px;
+}
+
+.sug {
+  margin: 8px 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  font-family: var(--font-code);
+  font-size: 12px;
+}
+
+.sugHead {
+  padding: 4px 10px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.sugDel,
+.sugAdd {
+  display: flex;
+  gap: 8px;
+  padding: 0 10px;
+  white-space: pre;
+}
+
+.sugDel {
+  background: var(--del-bg);
+}
+
+.sugAdd {
+  background: var(--add-bg);
+}
+
+.sugDel > span,
+.sugAdd > span {
+  flex: none;
+  width: 10px;
+}

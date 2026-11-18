@@ -1,0 +1,143 @@
+.wrap {
+  padding-bottom: 48px;
+}
+
+.talk {
+  max-width: 740px;
+  margin: 0 auto;
+  padding: 0 32px 32px;
+}
+
+.heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.heading h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.refresh,
+.link {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.refresh:hover,
+.link:hover {
+  color: var(--text);
+}
+
+.note {
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.error {
+  margin-bottom: 12px;
+  color: #f85149;
+  font-size: var(--text-sm);
+}
+
+.item {
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-sm);
+}
+
+.author {
+  font-weight: 600;
+}
+
+.state {
+  padding: 0 7px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.state[data-state="APPROVED"] {
+  color: #3fb950;
+}
+
+.state[data-state="CHANGES_REQUESTED"] {
+  color: #f85149;
+}
+
+.body {
+  padding: 8px 12px 10px;
+  line-height: 1.55;
+  user-select: text;
+  cursor: text;
+  overflow-wrap: anywhere;
+}
+
+.body > :first-child {
+  margin-top: 0;
+}
+
+.body > :last-child {
+  margin-bottom: 0;
+}
+
+.body a {
+  color: var(--accent);
+}
+
+.body code {
+  font-size: 12px;
+  background: var(--surface-2);
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
+.body pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  overflow-x: auto;
+}
+
+.body pre code {
+  background: none;
+  padding: 0;
+}
+
+.body del,
+.body .blob-code-deletion {
+  background: var(--del-bg);
+  text-decoration: none;
+}
+
+.body ins,
+.body .blob-code-addition {
+  background: var(--add-bg);
+  text-decoration: none;
+}
+
+.body table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-code);
+  font-size: 12px;
+}

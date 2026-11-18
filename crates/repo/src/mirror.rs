@@ -91,6 +91,24 @@ impl Mirrors {
         Ok(out)
     }
 
+    /// UTF-8 contents of `path` at `sha`. Uses the token so a blobless mirror can
+    /// fetch the blob. Fails when the mirror doesn't exist yet, or the blob is binary.
+    pub async fn read_file(&self, r: &MirrorRepo<'_>, sha: &str, path: &str) -> GitResult<String> {
+        let dir = self.path(r);
+        if !dir.join("HEAD").exists() {
+            return Err(crate::GitError::NotARepo { path: dir.display().to_string() });
+        }
+        let lock = self.lock(&dir);
+        let _guard = lock.lock().await;
+        let git = Git::new(&dir).with_token(r.token);
+        let spec = format!("{sha}:{path}");
+        let bytes = git.output(["show", "--no-textconv", "--", &spec]).await?;
+        if bytes.contains(&0) {
+            return Err(crate::GitError::Failed { args: format!("show {spec}"), stderr: "binary file".into() });
+        }
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
+    }
+
     /// A detached checkout of `head` at `dir` (reused while it's at `head`),
     /// with `.prism/pr.diff` holding the diff from `base`. File contents are
     /// fetched as needed. `.prism/` is ignored by git.

@@ -37,7 +37,7 @@ fn what(pr: &PrRef) -> String {
     format!("{}/{}#{}", pr.owner, pr.repo, pr.number)
 }
 
-async fn pr_node_id(gh: &GitHub, pr: &PrRef) -> GhResult<String> {
+pub(crate) async fn pr_node_id(gh: &GitHub, pr: &PrRef) -> GhResult<String> {
     #[derive(Deserialize)]
     struct Data {
         repository: Repo,

@@ -1,6 +1,28 @@
-import { memo, useEffect, useRef } from "react";
+import { memo, useEffect, useRef, useState, type MouseEvent } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type { CommentLabel, Draft } from "../ipc";
+import { renderComment } from "../lib/markdown";
 import styles from "./Draft.module.css";
+
+function openMdLinks(e: MouseEvent) {
+  const a = (e.target as HTMLElement).closest("a");
+  if (!a?.href.startsWith("http")) return;
+  e.preventDefault();
+  openUrl(a.href);
+}
+
+export function CommentPreview({ body, original, className }: { body: string; original?: string | null; className?: string }) {
+  if (!body.trim()) {
+    return (
+      <div className={className}>
+        <span className="muted">Nothing to preview</span>
+      </div>
+    );
+  }
+  return (
+    <div className={className ? `md ${className}` : "md"} onClick={openMdLinks} dangerouslySetInnerHTML={{ __html: renderComment(body, original ?? null) }} />
+  );
+}
 
 export interface ComposerValue {
   body: string;
@@ -18,13 +40,17 @@ interface ComposerProps {
   saving: boolean;
   error: string | null;
   saveLabel: string;
+  /** Drops the indent that lines the box up with diff text. */
+  plain?: boolean;
+  placeholder?: string;
   onChange: (v: ComposerValue) => void;
   onSave: () => void;
   onCancel: () => void;
 }
 
-export function Composer({ value, title, suggestion, saving, error, saveLabel, onChange, onSave, onCancel }: ComposerProps) {
+export function Composer({ value, title, suggestion, saving, error, saveLabel, plain, placeholder, onChange, onSave, onCancel }: ComposerProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
+  const [mode, setMode] = useState<"write" | "preview">("write");
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -44,7 +70,7 @@ export function Composer({ value, title, suggestion, saving, error, saveLabel, o
 
   return (
     <div
-      className={styles.card}
+      className={plain ? `${styles.card} ${styles.plain}` : styles.card}
       onKeyDown={(e) => {
         if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
           e.preventDefault();
@@ -57,6 +83,12 @@ export function Composer({ value, title, suggestion, saving, error, saveLabel, o
     >
       <div className={styles.bar}>
         <span className="muted">{title}</span>
+        <button type="button" className={styles.chip} data-on={mode === "write"} onClick={() => setMode("write")}>
+          Write
+        </button>
+        <button type="button" className={styles.chip} data-on={mode === "preview"} onClick={() => setMode("preview")}>
+          Preview
+        </button>
         <span className={styles.spacer} />
         {LABELS.map((l) => (
           <button key={l} className={styles.chip} data-label={l} data-on={value.label === l} onClick={() => pick(l)}>
@@ -64,14 +96,18 @@ export function Composer({ value, title, suggestion, saving, error, saveLabel, o
           </button>
         ))}
       </div>
-      <textarea
-        ref={ref}
-        className={styles.input}
-        rows={Math.min(14, Math.max(3, value.body.split("\n").length + 1))}
-        placeholder="Leave a comment"
-        value={value.body}
-        onChange={(e) => onChange({ ...value, body: e.target.value })}
-      />
+      {mode === "write" ? (
+        <textarea
+          ref={ref}
+          className={styles.input}
+          rows={Math.min(14, Math.max(3, value.body.split("\n").length + 1))}
+          placeholder={placeholder ?? "Leave a comment"}
+          value={value.body}
+          onChange={(e) => onChange({ ...value, body: e.target.value })}
+        />
+      ) : (
+        <CommentPreview body={value.body} original={suggestion} className={styles.preview} />
+      )}
       {error && <div className={styles.error}>{error}</div>}
       <div className={styles.actions}>
         <span className="muted">⌘↵ to save · Esc to cancel</span>
@@ -118,7 +154,7 @@ export const DraftCard = memo(function DraftCard({ draft, where, inline, onEdit,
           Delete
         </button>
       </div>
-      <div className={styles.body}>{draft.body}</div>
+      <CommentPreview body={draft.body} className={styles.body} />
     </div>
   );
 });

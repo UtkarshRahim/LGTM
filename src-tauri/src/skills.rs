@@ -497,9 +497,7 @@ async fn execute(
     let agent = Agent::spawn(t.spec, &root, tx).await.map_err(agent_err)?;
     let forward = async {
         while let Some(event) = rx.recv().await {
-            if !matches!(event, Event::Thought { .. }) {
-                emit(RunUpdate::Agent { event });
-            }
+            emit(RunUpdate::Agent { event });
         }
     };
     let work = async {

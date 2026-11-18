@@ -28,6 +28,7 @@ import { FindingCard } from "./Finding";
 import { errorText } from "../lib/errors";
 import { highlighted } from "../lib/highlight";
 import {
+  EXPAND_CHUNK,
   FILE_H,
   anchorOf,
   buildLayout,
@@ -37,6 +38,7 @@ import {
   rowKey,
   rowSize,
   type Anchor,
+  type FileContext,
   type LineDraft,
   type Prepared,
   type Row,
@@ -59,6 +61,8 @@ interface Props {
   syncing: boolean;
   scope: DiffScope;
   headSha: string;
+  /** Blob the old side of the diff comes from: the base, or the reviewed commit. */
+  oldSha: string;
   threads: ReviewThread[];
   drafts: Draft[];
   /** Paths marked viewed whose change hasn't moved since. */
@@ -113,10 +117,13 @@ const STATUS_LABEL: Record<FileMeta["status"], string> = {
 };
 
 export function DiffView(props: Props) {
-  const { ref, pr, files, layout, syncing, scope, headSha, threads, drafts, viewed, active } = props;
+  const { ref, pr, files, layout, syncing, scope, headSha, oldSha, threads, drafts, viewed, active } = props;
   const { onCurrentFile, onToggleLayout, onViewed, onAddDraft, onUpdateDraft, onDeleteDraft, onResolve } = props;
   const { findings, runSkills, onAcceptFinding, onDismissFinding } = props;
   const rightOnly = scope === "since";
+  const [context, setContext] = useState<Map<string, FileContext>>(() => new Map());
+  const [expanding, setExpanding] = useState<string | null>(null);
+  const [expandError, setExpandError] = useState<string | null>(null);
   const [store, setStore] = useState<Store>(() => ({ files, loaded: new Map(), failed: new Map() }));
   // Hunks belong to one file list; a new list (GitHub patches → local) starts over.
   if (store.files !== files) setStore({ files, loaded: new Map(), failed: new Map() });
@@ -203,7 +210,9 @@ export function DiffView(props: Props) {
       const fs = findingsByPath.get(meta.path) ?? NO_FINDINGS;
       const collapsed = isCollapsed(meta);
       const compose = composeNew?.path === meta.path ? composeNew.anchor : null;
-      const deps = [meta, fi, prep, layout, collapsed, ths, ds, fs, compose, headSha, rightOnly, syncing];
+      const blobSha = meta.status === "deleted" ? oldSha : headSha;
+      const ctx = context.get(`${meta.path}\0${blobSha}`) ?? null;
+      const deps = [meta, fi, prep, layout, collapsed, ths, ds, fs, compose, headSha, rightOnly, syncing, ctx];
       const hit = rowCache.current.get(meta.path);
       if (hit && hit.deps.every((d, i) => d === deps[i])) return hit.rows;
       const rows = fileRows({
@@ -216,6 +225,7 @@ export function DiffView(props: Props) {
         drafts: ds,
         findings: fs,
         headSha,
+        context: ctx,
         compose,
         rightOnly,
         syncing,
@@ -224,7 +234,7 @@ export function DiffView(props: Props) {
       return rows;
     });
     return buildLayout(perFile);
-  }, [files, current.loaded, threadsByPath, draftsByPath, findingsByPath, isCollapsed, composeNew, headSha, rightOnly, layout, syncing]);
+  }, [files, current.loaded, threadsByPath, draftsByPath, findingsByPath, isCollapsed, composeNew, headSha, oldSha, rightOnly, layout, syncing, context]);
 
   const cols = useMemo(() => {
     let c = 40;
@@ -656,6 +666,30 @@ export function DiffView(props: Props) {
     );
   };
 
+  const blobShaOf = (meta: FileMeta) => (meta.status === "deleted" ? oldSha : headSha);
+
+  const loadSpan = async (meta: FileMeta, from: number, to: number) => {
+    const sha = blobShaOf(meta);
+    if (!sha) return;
+    const key = `${meta.path}\0${sha}`;
+    setExpanding(`${key}:${from}`);
+    setExpandError(null);
+    const r = await commands.prFileLines(pr, meta.path, sha, from, to);
+    setExpanding(null);
+    if (r.status === "error") {
+      setExpandError(errorText(r.error));
+      return;
+    }
+    setContext((prev) => {
+      const cur = prev.get(key) ?? { lines: new Map<number, string>(), eof: null };
+      const lines = new Map(cur.lines);
+      r.data.lines.forEach((text, i) => lines.set(from + i, text));
+      const next = new Map(prev);
+      next.set(key, { lines, eof: r.data.eof ? from + r.data.lines.length - 1 : cur.eof });
+      return next;
+    });
+  };
+
   const composerFor = (title: string, suggestion: string | null, saveLabel: string) =>
     composer && (
       <Composer
@@ -692,6 +726,37 @@ export function DiffView(props: Props) {
             @@ -{h.old_start},{h.old_lines} +{h.new_start},{h.new_lines} @@ <span>{h.section}</span>
           </div>
         );
+      }
+      case "expand": {
+        const sha = blobShaOf(meta);
+        return (
+          <div className={styles.expand}>
+            {r.chunks.map((c) => {
+              const end = c.to ?? c.from + EXPAND_CHUNK - 1;
+              const busy = expanding === `${meta.path}\0${sha}:${c.from}`;
+              return (
+                <button key={`${c.from}:${c.to}`} type="button" disabled={busy || !sha} onClick={() => loadSpan(meta, c.from, end)}>
+                  {busy ? "Loading…" : c.label}
+                </button>
+              );
+            })}
+            {expandError && <span className={styles.expandError}>{expandError}</span>}
+          </div>
+        );
+      }
+      case "context": {
+        const line: DiffLine = { kind: "context", old: r.old, new: r.new, text: r.text };
+        if (layout === "split") {
+          const left = r.old == null ? null : line;
+          const right = r.new == null ? null : line;
+          return (
+            <div className={styles.pair}>
+              <Half fi={r.fi} hi={r.hi} line={left} hl={null} side="old" rightOnly={rightOnly} picked={isPicked(r.fi, left, "old")} />
+              <Half fi={r.fi} hi={r.hi} line={right} hl={null} side="new" rightOnly={rightOnly} picked={isPicked(r.fi, right, "new")} />
+            </div>
+          );
+        }
+        return <UnifiedLine fi={r.fi} hi={r.hi} line={line} hl={null} rightOnly={rightOnly} picked={isPicked(r.fi, line)} />;
       }
       case "line": {
         const line = prep!.lines[r.li];
@@ -756,7 +821,9 @@ export function DiffView(props: Props) {
         return (
           <div className={styles.threadRow}>
             <div className={styles.staleNote}>
-              {r.ids.length === 1 ? "This draft was" : "These drafts were"} written on an earlier version and won't be submitted
+              {r.why === "head"
+                ? `${r.ids.length === 1 ? "This draft was" : "These drafts were"} written on an earlier version and won't be submitted`
+                : `${r.ids.length === 1 ? "This draft is" : "These drafts are"} on lines outside the shown hunks. Expand unchanged code to see them in place.`}
             </div>
             {r.ids.map((id) => {
               const d = draftById.get(id);
@@ -769,9 +836,10 @@ export function DiffView(props: Props) {
       case "compose": {
         if (!composeNew || !prep) return null;
         const { anchor, start } = composeNew;
+        const sha = blobShaOf(meta);
         return (
           <div className={styles.threadRow}>
-            {composerFor(rangeTitle(start, anchor.line), suggestionText(prep, anchor, start), "Add to review")}
+            {composerFor(rangeTitle(start, anchor.line), suggestionText(prep, anchor, start, context.get(`${meta.path}\0${sha}`)?.lines), "Add to review")}
           </div>
         );
       }
@@ -932,11 +1000,24 @@ function parseAnchor(el: HTMLElement): Picked | null {
 const sameHunk = (a: Picked, b: Picked) => a.fi === b.fi && a.hi === b.hi && a.anchor.side === b.anchor.side;
 
 /** The commented lines as they read now, for a ```suggestion block. */
-function suggestionText(prep: Prepared, anchor: Anchor, start: number | null): string | null {
+function suggestionText(prep: Prepared, anchor: Anchor, start: number | null, extra?: ReadonlyMap<number, string>): string | null {
   if (anchor.side !== "RIGHT") return null;
   const from = start ?? anchor.line;
-  const lines = prep.lines.filter((l) => l.new != null && l.new >= from && l.new <= anchor.line && l.kind !== "del");
-  return lines.map((l) => l.text).join("\n");
+  const byLine = new Map<number, string>();
+  for (const l of prep.lines) {
+    if (l.new != null && l.new >= from && l.new <= anchor.line && l.kind !== "del") byLine.set(l.new, l.text);
+  }
+  if (extra) {
+    for (let n = from; n <= anchor.line; n++) {
+      const t = extra.get(n);
+      if (t != null && !byLine.has(n)) byLine.set(n, t);
+    }
+  }
+  if (byLine.size === 0) return null;
+  return [...byLine.keys()]
+    .sort((a, b) => a - b)
+    .map((n) => byLine.get(n) ?? "")
+    .join("\n");
 }
 
 const FileHeader = memo(function FileHeader({

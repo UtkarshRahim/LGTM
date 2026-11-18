@@ -136,6 +136,14 @@
   }
 }
 
+.working {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 2px 2px;
+  color: var(--accent);
+}
+
 .error {
   padding: 0 10px 8px;
   color: var(--blocker-fg);
@@ -242,6 +250,7 @@
   color: var(--muted);
   line-height: 1.45;
   overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .entry::before {
@@ -254,9 +263,28 @@
   color: var(--text);
 }
 
+.entry[data-kind="thought"] {
+  font-style: italic;
+}
+
+.entry[data-kind="thought"]::before,
+.entry[data-kind="message"]::before,
+.entry[data-kind="plan"]::before {
+  content: "";
+}
+
+.entry[data-kind="message"] {
+  color: var(--text);
+}
+
 .entry[data-kind="tool"] {
   font-family: var(--font-code);
   font-size: 11px;
+}
+
+.entry[data-kind="tool"][data-status="pending"],
+.entry[data-kind="tool"][data-status="in_progress"] {
+  color: var(--accent);
 }
 
 .entry[data-kind="tool"][data-status="failed"] {

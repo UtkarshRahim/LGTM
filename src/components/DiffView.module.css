@@ -167,6 +167,37 @@
   color: var(--muted);
 }
 
+.expand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 28px;
+  padding: 0 16px;
+  background: #141a24;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.expand button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.expand button:disabled {
+  cursor: default;
+}
+
+.expandError {
+  color: #f85149;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .line,
 .half {
   position: relative;

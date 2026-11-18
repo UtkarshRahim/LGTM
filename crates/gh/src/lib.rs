@@ -1,5 +1,8 @@
 pub mod auth;
+pub mod blob;
+pub mod checks;
 pub mod client;
+pub mod conversation;
 pub mod error;
 pub mod pr;
 pub mod query;

@@ -33,6 +33,8 @@ import { DiffView, type DiffViewHandle } from "../components/DiffView";
 import { FilePanel } from "../components/FilePanel";
 import { CheckoutButton } from "../components/CheckoutButton";
 import { PrInfo } from "../components/PrInfo";
+import { Checks, type CheckSummary } from "../components/Checks";
+import { Conversation } from "../components/Conversation";
 import { errorText } from "../lib/errors";
 import styles from "./PrView.module.css";
 
@@ -52,6 +54,14 @@ const NO_REVIEW: LocalReview = { drafts: [], viewed: [] };
 const NO_SKILLS: SkillState = { runs: [], findings: [] };
 const SEVERITY_KEY = "prism.findingSeverities";
 const PANEL_KEY = "prism.skillsPanel";
+const TAB_KEY = "prism.prTab";
+
+type PrTab = "description" | "checks" | "code";
+
+function savedTab(): PrTab {
+  const v = localStorage.getItem(TAB_KEY);
+  return v === "description" || v === "checks" ? v : "code";
+}
 
 function savedSeverities(): Set<Severity> {
   try {
@@ -88,6 +98,8 @@ export function PrView({ pr, active, projects, layout, onLayout, onTitle, onSwit
   const [severities, setSeverities] = useState(savedSeverities);
   const [filesWidth, setFilesWidth, resetFilesWidth] = useStoredSize("prism.filePanelWidth", 280);
   const [infoGen, setInfoGen] = useState(0);
+  const [tab, setTab] = useState<PrTab>(savedTab);
+  const [checkSummary, setCheckSummary] = useState<CheckSummary | null>(null);
   const diffRef = useRef<DiffViewHandle>(null);
   const started = useRef(0);
   const onTitleRef = useRef(onTitle);
@@ -211,6 +223,11 @@ export function PrView({ pr, active, projects, layout, onLayout, onTitle, onSwit
     setPanel(on);
     localStorage.setItem(PANEL_KEY, on ? "1" : "0");
   }, []);
+  const selectTab = useCallback((next: PrTab) => {
+    setTab(next);
+    localStorage.setItem(TAB_KEY, next);
+  }, []);
+  const onCheckSummary = useCallback((s: CheckSummary | null) => setCheckSummary(s), []);
   const runSkill = useCallback(
     async (skillId: string) => {
       const r = await commands.runSkill(pr, skillId);
@@ -426,7 +443,7 @@ export function PrView({ pr, active, projects, layout, onLayout, onTitle, onSwit
               {localState === "loading" && " · syncing mirror…"}
             </span>
           </div>
-          <div className={styles.toggles}>
+          <div className={styles.toggles} hidden={tab !== "code"}>
             <div className={styles.segmented} title={sinceTitle(since)}>
               <button data-on={scope === "all"} onClick={() => setScope("all")}>
                 All changes
@@ -485,6 +502,31 @@ export function PrView({ pr, active, projects, layout, onLayout, onTitle, onSwit
         )}
         {localState === "failed" && <div className={styles.warn}>Showing GitHub's patches; local diff failed: {localError}</div>}
         {threadsError && <div className={styles.warn}>Couldn't load review threads: {threadsError}</div>}
+        <div className={styles.tabs} role="tablist">
+          <button role="tab" className={styles.tab} data-on={tab === "description"} aria-selected={tab === "description"} onClick={() => selectTab("description")}>
+            Description
+          </button>
+          <button role="tab" className={styles.tab} data-on={tab === "checks"} aria-selected={tab === "checks"} onClick={() => selectTab("checks")}>
+            Checks
+            {checkSummary && checkSummary.failing > 0 && (
+              <span className={styles.badge} data-status="failure">
+                {checkSummary.failing}
+              </span>
+            )}
+            {checkSummary && checkSummary.failing === 0 && checkSummary.pending > 0 && (
+              <span className={styles.badge} data-status="pending">
+                {checkSummary.pending}
+              </span>
+            )}
+            {checkSummary && checkSummary.total > 0 && checkSummary.failing === 0 && checkSummary.pending === 0 && (
+              <span className={styles.badge}>{checkSummary.total}</span>
+            )}
+          </button>
+          <button role="tab" className={styles.tab} data-on={tab === "code"} aria-selected={tab === "code"} onClick={() => selectTab("code")}>
+            Code
+            {files.length > 0 && <span className={styles.badge}>{files.length}</span>}
+          </button>
+        </div>
       </header>
       <PrInfo
         pr={pr}
@@ -497,42 +539,51 @@ export function PrView({ pr, active, projects, layout, onLayout, onTitle, onSwit
         onDeleteDraft={onDeleteDraft}
       />
       <div className={styles.body}>
-        <div className={styles.side} style={{ width: filesWidth }}>
-          <FilePanel files={files} current={currentFile} onPick={pick} threadCounts={threadCounts} />
-          <Resizer
-            edge="right"
-            size={filesWidth}
-            min={160}
-            max={() => window.innerWidth * 0.4}
-            onSize={setFilesWidth}
-            onReset={resetFilesWidth}
+        <div className={styles.code} hidden={tab !== "code"}>
+          <div className={styles.side} style={{ width: filesWidth }}>
+            <FilePanel files={files} current={currentFile} onPick={pick} threadCounts={threadCounts} />
+            <Resizer
+              edge="right"
+              size={filesWidth}
+              min={160}
+              max={() => window.innerWidth * 0.4}
+              onSize={setFilesWidth}
+              onReset={resetFilesWidth}
+            />
+          </div>
+          <DiffView
+            key={scope}
+            ref={diffRef}
+            pr={pr}
+            files={files}
+            layout={layout}
+            syncing={localState === "loading"}
+            scope={scope}
+            headSha={headSha}
+            oldSha={scope === "since" && sinceReady ? sinceReady.reviewed_sha : d.base_sha}
+            threads={threads}
+            drafts={local.drafts}
+            viewed={viewed}
+            active={active && tab === "code"}
+            onCurrentFile={setCurrentFile}
+            onToggleLayout={toggleLayout}
+            onViewed={onViewed}
+            onAddDraft={onAddDraft}
+            onUpdateDraft={onUpdateDraft}
+            onDeleteDraft={onDeleteDraft}
+            onResolve={onResolve}
+            findings={inlineFindings}
+            runSkills={runSkills}
+            onAcceptFinding={onAcceptFinding}
+            onDismissFinding={onDismissFinding}
           />
         </div>
-        <DiffView
-          key={scope}
-          ref={diffRef}
-          pr={pr}
-          files={files}
-          layout={layout}
-          syncing={localState === "loading"}
-          scope={scope}
-          headSha={headSha}
-          threads={threads}
-          drafts={local.drafts}
-          viewed={viewed}
-          active={active}
-          onCurrentFile={setCurrentFile}
-          onToggleLayout={toggleLayout}
-          onViewed={onViewed}
-          onAddDraft={onAddDraft}
-          onUpdateDraft={onUpdateDraft}
-          onDeleteDraft={onDeleteDraft}
-          onResolve={onResolve}
-          findings={inlineFindings}
-          runSkills={runSkills}
-          onAcceptFinding={onAcceptFinding}
-          onDismissFinding={onDismissFinding}
-        />
+        <div className={styles.page} hidden={tab !== "description"}>
+          <Conversation pr={pr} body={d.body} />
+        </div>
+        <div className={styles.page} hidden={tab !== "checks"}>
+          <Checks pr={pr} headSha={headSha} onSummary={onCheckSummary} />
+        </div>
         {panel && (
           <SkillsPanel
             pr={pr}
@@ -550,7 +601,8 @@ export function PrView({ pr, active, projects, layout, onLayout, onTitle, onSwit
             onCancel={(id) => commands.cancelSkillRun(id)}
             onFocus={(f) => {
               if (!severities.has(f.severity)) onSeverities(new Set([...severities, f.severity]));
-              requestAnimationFrame(() => diffRef.current?.focusFinding(f.id));
+              selectTab("code");
+              requestAnimationFrame(() => requestAnimationFrame(() => diffRef.current?.focusFinding(f.id)));
             }}
             onRestore={(f) => onDismissFinding(f, null)}
             onClose={() => showPanel(false)}

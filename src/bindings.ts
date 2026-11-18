@@ -35,6 +35,17 @@ export const commands = {
 	prContext: (pr: PrRef) => typedError<PrContext_Serialize, AppError_Serialize>(__TAURI_INVOKE("pr_context", { pr })),
 	addPrComment: (pr: PrRef, body: string) => typedError<PrComment_Serialize, AppError_Serialize>(__TAURI_INVOKE("add_pr_comment", { pr, body })),
 	prAsset: (pr: PrRef, url: string) => typedError<PrAsset, AppError_Serialize>(__TAURI_INVOKE("pr_asset", { pr, url })),
+	/**  CI checks on the pull request's latest commit. */
+	prChecks: (pr: PrRef) => typedError<PrChecks_Serialize, AppError_Serialize>(__TAURI_INVOKE("pr_checks", { pr })),
+	/**  Issue comments and submitted reviews on the pull request. */
+	prConversation: (pr: PrRef) => typedError<Conversation_Serialize, AppError_Serialize>(__TAURI_INVOKE("pr_conversation", { pr })),
+	/**  Posts a comment on the pull request itself, not on a line. */
+	commentOnPr: (pr: PrRef, body: string) => typedError<ConversationItem_Serialize, AppError_Serialize>(__TAURI_INVOKE("comment_on_pr", { pr, body })),
+	/**
+	 *  A window of unchanged lines from a file at `sha`, so a diff can show the code
+	 *  between hunks. `start` and `end` are 1-based and inclusive.
+	 */
+	prFileLines: (pr: PrRef, path: string, sha: string, start: number, end: number) => typedError<FileSlice, AppError_Serialize>(__TAURI_INVOKE("pr_file_lines", { pr, path, sha, start, end })),
 	/**  Home's queue, across github.com and every host your projects live on. */
 	needsYou: () => typedError<NeedsYou_Serialize, AppError_Serialize>(__TAURI_INVOKE("needs_you")),
 	prLocalReview: (pr: PrRef) => typedError<LocalReview_Serialize, AppError_Serialize>(__TAURI_INVOKE("pr_local_review", { pr })),
@@ -166,6 +177,22 @@ export type ChatRole = "user" | "assistant";
 
 export type ChatUpdate = { kind: "delta"; text: string } | { kind: "done"; id: number; body: string } | { kind: "failed"; error: string };
 
+export type Check = Check_Serialize | Check_Deserialize;
+
+export type CheckStatus = "pending" | "success" | "failure" | "neutral" | "skipped";
+
+export type Check_Deserialize = {
+	name: string,
+	status: CheckStatus,
+	url?: string | null,
+};
+
+export type Check_Serialize = {
+	name: string,
+	status: CheckStatus,
+	url: string | null,
+};
+
 export type CheckoutMode = 
 /**  `gh pr checkout` if the project is clean; otherwise ask. */
 "auto" | 
@@ -195,6 +222,42 @@ export type CheckoutSettings_Serialize = {
 };
 
 export type CommentLabel = "praise" | "nit" | "suggestion" | "question";
+
+export type Conversation = Conversation_Serialize | Conversation_Deserialize;
+
+export type ConversationItem = ConversationItem_Serialize | ConversationItem_Deserialize;
+
+export type ConversationItem_Deserialize = {
+	id: string,
+	author?: string | null,
+	body_html: string,
+	created_at: string,
+	url: string,
+	/**  Set for a submitted review: APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED. */
+	review_state?: string | null,
+};
+
+export type ConversationItem_Serialize = {
+	id: string,
+	author: string | null,
+	body_html: string,
+	created_at: string,
+	url: string,
+	/**  Set for a submitted review: APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED. */
+	review_state: string | null,
+};
+
+export type Conversation_Deserialize = {
+	items: ConversationItem_Deserialize[],
+	/**  More comments or reviews exist than were fetched. */
+	truncated: boolean,
+};
+
+export type Conversation_Serialize = {
+	items: ConversationItem_Serialize[],
+	/**  More comments or reviews exist than were fetched. */
+	truncated: boolean,
+};
 
 export type DiffLayout = "unified" | "split";
 
@@ -341,6 +404,12 @@ export type FileMeta_Serialize = {
 	 */
 	unified_rows: number,
 	split_rows: number,
+};
+
+export type FileSlice = {
+	lines: string[],
+	/**  True when `end` reached the last line of the file, or past it. */
+	eof: boolean,
 };
 
 export type FileStatus = "added" | "deleted" | "modified" | "renamed" | "copied";
@@ -512,6 +581,24 @@ export type PrContext_Serialize = {
 	comments: PrComment_Serialize[],
 	checks: PrCheck_Serialize[],
 	warning: string | null,
+};
+
+export type PrChecks = PrChecks_Serialize | PrChecks_Deserialize;
+
+export type PrChecks_Deserialize = {
+	/**  GitHub's rollup for the head commit, when any checks exist. */
+	conclusion?: CheckStatus | null,
+	checks: Check_Deserialize[],
+	/**  More checks exist than were fetched. */
+	truncated: boolean,
+};
+
+export type PrChecks_Serialize = {
+	/**  GitHub's rollup for the head commit, when any checks exist. */
+	conclusion: CheckStatus | null,
+	checks: Check_Serialize[],
+	/**  More checks exist than were fetched. */
+	truncated: boolean,
 };
 
 export type PrCount = PrCount_Serialize | PrCount_Deserialize;
